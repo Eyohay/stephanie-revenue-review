@@ -5,44 +5,51 @@ function KpiCard({
   label,
   value,
   sub,
-  tone = 'default',
+  accent,
 }: {
   label: string;
   value: string;
   sub?: string;
-  tone?: 'default' | 'green' | 'blue' | 'amber';
+  accent?: 'green' | 'blue' | 'amber';
 }) {
   const valueColor =
-    tone === 'green'
-      ? 'text-green-700'
-      : tone === 'blue'
-      ? 'text-blue-700'
-      : tone === 'amber'
-      ? 'text-amber-700'
-      : 'text-gray-900';
+    accent === 'green'
+      ? '#4ade80'
+      : accent === 'blue'
+      ? '#60a5fa'
+      : accent === 'amber'
+      ? '#fbbf24'
+      : 'var(--foreground)';
   return (
-    <div className="bg-white border rounded-lg p-4" style={{ borderColor: 'var(--color-border-tertiary)' }}>
-      <div className="text-xs text-gray-500 uppercase tracking-wide leading-tight">{label}</div>
-      <div className={`text-2xl font-semibold mt-1 tabular-nums ${valueColor}`}>{value}</div>
-      {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
+    <div
+      className="rounded-lg p-4"
+      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+    >
+      <div className="text-[11px] uppercase tracking-wide leading-tight" style={{ color: 'var(--text-muted)' }}>
+        {label}
+      </div>
+      <div className="text-2xl font-semibold mt-1 tabular-nums" style={{ color: valueColor }}>
+        {value}
+      </div>
+      {sub && (
+        <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+          {sub}
+        </div>
+      )}
     </div>
   );
 }
 
 export default function StatsSection({ stats }: { stats: Stats }) {
   return (
-    <div className="max-w-7xl mx-auto px-6 pt-4 pb-2 space-y-3">
-      {/* Row 1: Client counts */}
+    <div className="max-w-7xl mx-auto px-6 pt-4 pb-3 space-y-3">
+      {/* Row 1: Pilot counts — 4 cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard
-          label="Current clients"
-          value={stats.totalClients.toString()}
-          sub="live + pre-launch"
-        />
+        <KpiCard label="Current clients" value={stats.totalClients.toString()} sub="live + pre-launch" />
         <KpiCard
           label={`Pilots ending in ${stats.thisMonthName}`}
           value={stats.pilotsEndingThisMonth.toString()}
-          tone={stats.pilotsEndingThisMonth > 0 ? 'amber' : 'default'}
+          accent={stats.pilotsEndingThisMonth > 0 ? 'amber' : undefined}
         />
         <KpiCard
           label={`Pilots ending in ${stats.nextMonthName}`}
@@ -54,29 +61,34 @@ export default function StatsSection({ stats }: { stats: Stats }) {
         />
       </div>
 
-      {/* Row 2: Revenue */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard
-          label={`Revenue — ${stats.lastMonthName} (collected)`}
-          value={formatUSD(stats.revenueLastMonth)}
-          sub="ok-successful payments"
-        />
-        <KpiCard
-          label="Revenue — MTD this month"
-          value={formatUSD(stats.revenueMtd)}
-          sub="collected so far"
-          tone="green"
-        />
-        <KpiCard
-          label="Forecast — this month"
-          value={formatUSD(stats.revenueForecast)}
-          sub="MTD + expected remaining"
-        />
+      {/* Row 2: Revenue — 5 cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <KpiCard
           label="Post-pilot MRR"
-          value={formatUSD(stats.revenuePostPilotRecurring)}
-          sub="live clients past pilot"
-          tone="blue"
+          value={formatUSD(stats.postPilotRevenueThisMonth)}
+          sub="live post-pilot retainers"
+          accent="blue"
+        />
+        <KpiCard
+          label="MTD collected"
+          value={formatUSD(stats.revenueMtd)}
+          sub="ok-successful this month"
+          accent="green"
+        />
+        <KpiCard
+          label="Forecast this month"
+          value={formatUSD(stats.revenueForecast)}
+          sub="MTD + upcoming"
+        />
+        <KpiCard
+          label="Forecast next month"
+          value={formatUSD(stats.revenueForecastNextMonth)}
+          sub="next bill dates"
+        />
+        <KpiCard
+          label="Prior month collected"
+          value={formatUSD(stats.revenuePriorMonth)}
+          sub="all clients, ok-successful"
         />
       </div>
     </div>

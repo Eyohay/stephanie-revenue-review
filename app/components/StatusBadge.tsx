@@ -1,25 +1,61 @@
 export function StatusBadge({ status }: { status: string }) {
   const s = status.toLowerCase();
-  let cls = 'inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ';
-  if (s === 'live') cls += 'bg-green-100 text-green-700';
-  else if (s === 'pre-launch') cls += 'bg-blue-100 text-blue-700';
-  else cls += 'bg-gray-100 text-gray-600';
-  return <span className={cls}>{status}</span>;
+  let style: React.CSSProperties;
+  if (s === 'live') {
+    style = { background: 'rgba(16,185,129,0.15)', color: '#34d399' };
+  } else if (s === 'pre-launch') {
+    style = { background: 'rgba(59,130,246,0.15)', color: '#60a5fa' };
+  } else {
+    style = { background: 'rgba(148,163,184,0.15)', color: '#94a3b8' };
+  }
+  return (
+    <span
+      className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium"
+      style={style}
+    >
+      {status}
+    </span>
+  );
 }
 
-export function TierBadge({ tier }: { tier: 'Platinum' | 'Gold' | null }) {
-  if (!tier) return <span className="text-gray-400">—</span>;
-  const cls =
-    tier === 'Platinum'
-      ? 'inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-700'
-      : 'inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800';
-  return <span className={cls}>{tier}</span>;
+export function TierBadge({ tier }: { tier: 'Platinum' | 'Gold' | 'Custom' | null }) {
+  if (!tier) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+  let style: React.CSSProperties;
+  if (tier === 'Platinum') {
+    style = { background: 'rgba(148,163,184,0.2)', color: '#cbd5e1' };
+  } else if (tier === 'Gold') {
+    style = { background: 'rgba(251,191,36,0.15)', color: '#fbbf24' };
+  } else {
+    style = { background: 'rgba(59,130,246,0.15)', color: '#60a5fa' };
+  }
+  return (
+    <span
+      className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium"
+      style={style}
+    >
+      {tier}
+    </span>
+  );
 }
 
 export function PendingBadge() {
   return (
-    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 ml-1">
+    <span
+      className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ml-1"
+      style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}
+    >
       Pending
+    </span>
+  );
+}
+
+export function PaidUpfrontBadge() {
+  return (
+    <span
+      className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ml-1"
+      style={{ background: 'rgba(168,85,247,0.15)', color: '#c084fc' }}
+    >
+      Paid upfront
     </span>
   );
 }

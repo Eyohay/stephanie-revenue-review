@@ -6,7 +6,18 @@ import { formatUSD } from '@/lib/format';
 import { LinkPills } from './LinkPills';
 import { StatusBadge } from './StatusBadge';
 
-const TH = 'px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide bg-gray-50 whitespace-nowrap';
+const TH_STYLE: React.CSSProperties = {
+  background: 'var(--bg-elevated)',
+  color: 'var(--text-muted)',
+  padding: '10px 12px',
+  textAlign: 'left',
+  fontSize: 11,
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+  whiteSpace: 'nowrap',
+  borderBottom: '1px solid var(--border)',
+};
 const TD = 'px-3 py-2.5 align-top';
 
 type PilotFilter = 'all' | 'in-pilot' | 'post-pilot';
@@ -30,16 +41,20 @@ function SegmentedControl({
   options: { value: string; label: string }[];
 }) {
   return (
-    <div className="inline-flex rounded-full bg-gray-100 p-0.5 gap-0.5">
+    <div
+      className="inline-flex rounded-full p-0.5 gap-0.5"
+      style={{ background: 'var(--bg-elevated)' }}
+    >
       {options.map((opt) => (
         <button
           key={opt.value}
           onClick={() => onChange(opt.value)}
-          className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+          className="px-3 py-1 rounded-full text-xs font-medium transition-all"
+          style={
             value === opt.value
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
+              ? { background: '#334155', color: '#f1f5f9' }
+              : { color: 'var(--text-secondary)' }
+          }
         >
           {opt.label}
         </button>
@@ -58,10 +73,9 @@ export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[]
     return true;
   });
 
-  // Group into $250 buckets
   const bucketMap = new Map<number, SerializedClientRow[]>();
   for (const r of filtered) {
-    const b = getBucket(r.largestSubAmount);
+    const b = getBucket(r.monthlyRetainer);
     if (!bucketMap.has(b)) bucketMap.set(b, []);
     bucketMap.get(b)!.push(r);
   }
@@ -86,7 +100,7 @@ export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[]
   ];
 
   if (rows.length === 0) {
-    return <div className="text-center py-12 text-gray-500 text-sm">No recurring monthly clients.</div>;
+    return <div className="text-center py-12 text-sm" style={{ color: 'var(--text-secondary)' }}>No recurring monthly clients.</div>;
   }
 
   return (
@@ -97,11 +111,15 @@ export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[]
           onChange={(v) => setPilotFilter(v as PilotFilter)}
           options={pilotOptions}
         />
-        <span className="text-xs text-gray-400">Recurring monthly clients only · paid-upfront excluded</span>
+        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          Recurring monthly clients only · paid-upfront excluded
+        </span>
       </div>
 
       {filtered.length === 0 && (
-        <div className="text-center py-8 text-gray-400 text-sm">No clients in this view.</div>
+        <div className="text-center py-8 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          No clients in this view.
+        </div>
       )}
 
       {buckets.map(([low, bRows]) => {
@@ -110,35 +128,49 @@ export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[]
           <div key={low} className="mb-3">
             <button
               onClick={() => toggle(low)}
-              className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 border rounded text-left hover:bg-gray-100 text-xs font-semibold text-gray-700 uppercase tracking-wide"
-              style={{ borderColor: 'var(--color-border-tertiary)' }}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded text-left text-xs font-semibold uppercase tracking-wide"
+              style={{
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-secondary)',
+              }}
             >
-              <span className={`text-gray-400 transition-transform ${isCollapsed ? '' : 'rotate-90'}`} style={{ fontSize: 9 }}>▶</span>
+              <span
+                className="transition-transform"
+                style={{ fontSize: 9, transform: isCollapsed ? 'none' : 'rotate(90deg)', display: 'inline-block', color: 'var(--text-muted)' }}
+              >
+                ▶
+              </span>
               <span>{bucketLabel(low)}</span>
-              <span className="ml-1 text-gray-400 font-normal normal-case">({bRows.length} client{bRows.length !== 1 ? 's' : ''})</span>
+              <span style={{ fontWeight: 400, textTransform: 'none', color: 'var(--text-muted)' }}>
+                ({bRows.length} client{bRows.length !== 1 ? 's' : ''})
+              </span>
             </button>
 
             {!isCollapsed && (
-              <div className="overflow-x-auto border border-t-0 rounded-b" style={{ borderColor: 'var(--color-border-tertiary)' }}>
+              <div
+                className="overflow-x-auto rounded-b"
+                style={{ border: '1px solid var(--border)', borderTop: 'none' }}
+              >
                 <table className="w-full border-collapse" style={{ fontSize: 12 }}>
                   <thead>
-                    <tr style={{ borderBottom: '1px solid var(--color-border-tertiary)' }}>
-                      <th className={TH}>Client</th>
-                      <th className={TH}>Links</th>
-                      <th className={TH}>Status</th>
-                      <th className={TH} style={{ textAlign: 'right' }}>Monthly amount</th>
+                    <tr>
+                      <th style={TH_STYLE}>Client</th>
+                      <th style={TH_STYLE}>Links</th>
+                      <th style={TH_STYLE}>Status</th>
+                      <th style={{ ...TH_STYLE, textAlign: 'right' }}>Monthly amount</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y" style={{ '--tw-divide-color': 'var(--color-border-tertiary)' } as React.CSSProperties}>
+                  <tbody>
                     {bRows.map((r) => (
-                      <tr key={r.id} className="hover:bg-gray-50">
-                        <td className={TD} style={{ fontWeight: 500 }}>{r.organizationName}</td>
+                      <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>{r.organizationName}</td>
                         <td className={TD}>
                           <LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} />
                         </td>
                         <td className={TD}><StatusBadge status={r.accountStatus} /></td>
-                        <td className={TD} style={{ textAlign: 'right', fontWeight: 500 }}>
-                          {r.largestSubAmount !== null ? formatUSD(r.largestSubAmount) : '—'}
+                        <td className={TD} style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}>
+                          {r.monthlyRetainer !== null ? formatUSD(r.monthlyRetainer) : '—'}
                         </td>
                       </tr>
                     ))}

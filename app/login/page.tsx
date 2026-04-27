@@ -33,22 +33,23 @@ async function login(formData: FormData) {
 export default function LoginPage({ searchParams }: { searchParams: { e?: string } }) {
   const showError = searchParams.e === '1';
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50">
-      <form action={login} className="w-full max-w-sm bg-white border rounded-lg shadow-sm p-6">
-        <h1 className="text-xl font-semibold mb-1">Stephanie Revenue Review</h1>
-        <p className="text-sm text-gray-500 mb-5">Enter the dashboard password to continue.</p>
-        <label className="block text-sm font-medium mb-1">Password</label>
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: 'var(--background)' }}>
+      <form action={login} className="w-full max-w-sm rounded-lg p-6 border" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+        <h1 className="text-xl font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Stephanie Revenue Review</h1>
+        <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>Enter the dashboard password to continue.</p>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>Password</label>
         <input
           name="password"
           type="password"
           autoFocus
           required
-          className="w-full border border-gray-300 rounded px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full rounded px-3 py-2 mb-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
         />
-        {showError && <p className="text-sm text-red-600 mb-3">Incorrect password.</p>}
+        {showError && <p className="text-sm text-red-400 mb-3">Incorrect password.</p>}
         <button
           type="submit"
-          className="w-full bg-blue-600 text-white rounded py-2 font-medium hover:bg-blue-700"
+          className="w-full bg-blue-600 text-white rounded py-2 font-medium hover:bg-blue-500"
         >
           Sign in
         </button>

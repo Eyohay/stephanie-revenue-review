@@ -7,6 +7,18 @@ const ACTIVE_STATUSES = ['active', 'current', 'trialing', 'in_trial', 'live', 'a
 const PAID_STATUSES = ['paid', 'successful', 'succeeded', 'completed', 'captured', 'settled', 'ok-successful'];
 const FAILED_STATUSES = ['no-declined', 'fail', 'failed', 'declined', 'refunded', 'error'];
 
+// Floor 9 is an internal/investment entity — excluded from all Stephanie views (matches active-clients-billing)
+const FLOOR9_ENGAGEMENT = ['Floor 9', 'floor 9', 'FLOOR 9', 'Floor9', 'floor9'];
+const FLOOR9_BRAND = [...FLOOR9_ENGAGEMENT, 'Floor 9 Ventures', 'floor 9 ventures', 'FLOOR 9 VENTURES'];
+
+const FLOOR9_WHERE = {
+  AND: [
+    { OR: [{ engagementType: null as string | null }, { engagementType: { notIn: FLOOR9_ENGAGEMENT } }] },
+    { OR: [{ dealType: null as string | null }, { dealType: { notIn: FLOOR9_ENGAGEMENT } }] },
+    { OR: [{ brandName: null as string | null }, { brandName: { notIn: FLOOR9_BRAND } }] },
+  ],
+};
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -34,6 +46,44 @@ function isActive(status: string | null): boolean {
   return ACTIVE_STATUSES.includes((status ?? '').toLowerCase());
 }
 
+/** Derive tier: monthlyRetainer-first, financeNotes fallback, then "Custom" */
+function deriveTier(
+  monthlyRetainer: number | null,
+  financeNotes: string | null
+): 'Platinum' | 'Gold' | 'Custom' | null {
+  if (monthlyRetainer === 2000) return 'Gold';
+  if (monthlyRetainer === 2500) return 'Platinum';
+  const fn = (financeNotes ?? '').toLowerCase();
+  if (fn.includes('platinum')) return 'Platinum';
+  if (fn.includes('gold')) return 'Gold';
+  if (monthlyRetainer !== null && monthlyRetainer > 0) return 'Custom';
+  return null;
+}
+
+/**
+ * Ghost-record dedup (matches active-clients-billing logic):
+ * Suppress unmatched clients whose actualLaunchDate matches a matched sibling —
+ * sign of billing-audit duplicating a record from a Deal ID instead of the Org ID.
+ */
+function dedupeGhosts<T extends {
+  id: string;
+  chargeoverCustomerId: string | null;
+  actualLaunchDate: Date | null;
+}>(clients: T[]): T[] {
+  const matchedLaunchDates = new Set<number>();
+  for (const c of clients) {
+    if (c.chargeoverCustomerId && c.actualLaunchDate) {
+      matchedLaunchDates.add(new Date(c.actualLaunchDate).getTime());
+    }
+  }
+  return clients.filter((c) => {
+    if (!c.chargeoverCustomerId && c.actualLaunchDate) {
+      return !matchedLaunchDates.has(new Date(c.actualLaunchDate).getTime());
+    }
+    return true;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Shared types
 // ---------------------------------------------------------------------------
@@ -56,6 +106,11 @@ type ClientRaw = {
   accountStatus: string;
   chargeoverCustomerId: string | null;
   financeNotes: string | null;
+  monthlyRetainer: unknown; // Prisma Decimal — use Number() to convert
+  engagementType: string | null;
+  dealType: string | null;
+  brandName: string | null;
+  actualLaunchDate: Date | null;
   pilotRolloverEndDate: Date | null;
   subscriptions: SubRaw[];
   payments: PayRaw[];
@@ -67,20 +122,18 @@ export type ClientRow = {
   organizationName: string;
   accountStatus: string;
   chargeoverCustomerId: string | null;
-  paidUpfront: boolean;
+  paidUpfront: boolean; // financeNotes contains "paid upfront" OR monthlyRetainer > 3000
   // Pilot
   pilotRolloverEndDate: Date | null;
   isInPilot: boolean;
   isPastPilot: boolean;
-  // Subscription
+  // Subscription (ChargeOver data — used for last/next payment display only)
   activeSubscriptionCount: number;
-  largestSubAmount: number | null;
-  // isRecurringMonthly: has nextBillDate AND NOT paidUpfront AND nextBillDate within 60 days
-  // Judgment call: 60-day window excludes quarterly/annual billing, includes monthly
-  isRecurringMonthly: boolean;
-  // Tier from financeNotes
-  tier: 'Platinum' | 'Gold' | null;
-  // Payments
+  // Monthly amount: Client.monthlyRetainer is source of truth
+  monthlyRetainer: number | null;
+  // Tier: monthlyRetainer-first, financeNotes fallback, then 'Custom'
+  tier: 'Platinum' | 'Gold' | 'Custom' | null;
+  // Payments (ChargeOver data)
   lastPaymentDate: Date | null;
   lastPaymentAmount: number | null;
   lastPaymentPending: boolean;
@@ -89,7 +142,6 @@ export type ClientRow = {
   lifetimeTotalPaid: number;
 };
 
-// Date fields as ISO strings for safe server→client passing
 export type SerializedClientRow = Omit<
   ClientRow,
   'pilotRolloverEndDate' | 'lastPaymentDate' | 'nextPaymentDate'
@@ -115,31 +167,28 @@ function buildRow(c: ClientRaw): ClientRow {
   const now = new Date();
 
   const activeSubs = c.subscriptions.filter((s) => isActive(s.status));
-
-  // Largest active sub by amount
   const sortedSubs = [...activeSubs].sort((a, b) => subAmount(b) - subAmount(a));
   const largestSub = sortedSubs[0] ?? null;
-  const largestSubAmount = largestSub ? subAmount(largestSub) : null;
 
   // Payments
   const paidPayments = c.payments.filter((p) => PAID_STATUSES.includes((p.status ?? '').toLowerCase()));
   const lifetimeTotalPaid = paidPayments.reduce((sum, p) => sum + Number(p.amount ?? 0), 0);
 
-  // Last non-failed payment (captured or pending)
+  // Last non-failed payment (captured or pending) — for display
   const nonFailedPayments = c.payments.filter((p) => !FAILED_STATUSES.includes((p.status ?? '').toLowerCase()));
   const lastAny = nonFailedPayments[0] ?? null;
   const lastPaymentPending = lastAny
     ? !PAID_STATUSES.includes((lastAny.status ?? '').toLowerCase())
     : false;
 
-  // Next payment from largest sub lineItems
+  // Next payment from largest active sub lineItems
   let nextPaymentDate: Date | null = null;
   let nextPaymentAmount: number | null = null;
   if (largestSub) {
     const nd = getNextBillDate(largestSub);
     if (nd) {
       nextPaymentDate = nd;
-      nextPaymentAmount = largestSubAmount;
+      nextPaymentAmount = subAmount(largestSub);
     }
   }
 
@@ -148,28 +197,15 @@ function buildRow(c: ClientRaw): ClientRow {
   const isInPilot = !!(pilotEnd && pilotEnd > now);
   const isPastPilot = !!(pilotEnd && pilotEnd <= now);
 
-  // Tier detection
+  // monthlyRetainer — source of truth for monthly amount
+  const monthlyRetainer = c.monthlyRetainer != null ? Number(c.monthlyRetainer) : null;
+
+  // Paid upfront: financeNotes substring OR monthlyRetainer > 3000
   const fn = (c.financeNotes ?? '').toLowerCase();
-  let tier: 'Platinum' | 'Gold' | null = null;
-  if (fn.includes('platinum')) tier = 'Platinum';
-  else if (fn.includes('gold')) tier = 'Gold';
+  const paidUpfront = fn.includes('paid upfront') || (monthlyRetainer !== null && monthlyRetainer > 3000);
 
-  // Paid upfront
-  const paidUpfront = fn.includes('paid upfront');
-
-  // Recurring monthly detection:
-  // - NOT paidUpfront
-  // - largest sub has a nextBillDate (excludes one-time payments)
-  // - nextBillDate is within 60 days of today (excludes quarterly/annual billing)
-  const sixtyDaysOut = new Date(now);
-  sixtyDaysOut.setDate(sixtyDaysOut.getDate() + 60);
-  const tenDaysAgo = new Date(now);
-  tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
-  const isRecurringMonthly =
-    !paidUpfront &&
-    !!nextPaymentDate &&
-    nextPaymentDate >= tenDaysAgo &&
-    nextPaymentDate <= sixtyDaysOut;
+  // Tier: monthlyRetainer-first
+  const tier = deriveTier(monthlyRetainer, c.financeNotes);
 
   return {
     id: c.id,
@@ -182,8 +218,7 @@ function buildRow(c: ClientRaw): ClientRow {
     isInPilot,
     isPastPilot,
     activeSubscriptionCount: activeSubs.length,
-    largestSubAmount,
-    isRecurringMonthly,
+    monthlyRetainer,
     tier,
     lastPaymentDate: lastAny?.paidDate ?? null,
     lastPaymentAmount: lastAny ? Number(lastAny.amount ?? 0) : null,
@@ -195,7 +230,7 @@ function buildRow(c: ClientRaw): ClientRow {
 }
 
 // ---------------------------------------------------------------------------
-// Shared DB select config
+// Shared DB select (all fields needed for display + filtering)
 // ---------------------------------------------------------------------------
 const CLIENT_SELECT = {
   id: true,
@@ -204,6 +239,11 @@ const CLIENT_SELECT = {
   accountStatus: true,
   chargeoverCustomerId: true,
   financeNotes: true,
+  monthlyRetainer: true,
+  engagementType: true,
+  dealType: true,
+  brandName: true,
+  actualLaunchDate: true,
   pilotRolloverEndDate: true,
   subscriptions: {
     select: { status: true, amount: true, lineItems: true },
@@ -215,7 +255,7 @@ const CLIENT_SELECT = {
 };
 
 // ---------------------------------------------------------------------------
-// Tab 1: Pilot ending in next 10 days
+// Tab 1: Pilots ending in next 10 days
 // ---------------------------------------------------------------------------
 export async function getPilotEndingRows(): Promise<ClientRow[]> {
   const now = new Date();
@@ -229,28 +269,32 @@ export async function getPilotEndingRows(): Promise<ClientRow[]> {
     where: {
       accountStatus: { in: ['Live', 'Pre-Launch'] },
       pilotRolloverEndDate: { gte: todayStart, lte: tenDaysEnd },
+      ...FLOOR9_WHERE,
     },
     select: CLIENT_SELECT,
     orderBy: { pilotRolloverEndDate: 'asc' },
   }) as unknown as ClientRaw[];
 
-  return clients.map(buildRow);
+  return dedupeGhosts(clients).map(buildRow);
 }
 
 // ---------------------------------------------------------------------------
-// Tab 2: Active clients by price (recurring monthly only)
+// Tab 2: Active by price (monthlyRetainer ≤ 3000, excludes paid-upfront)
 // ---------------------------------------------------------------------------
 export async function getActiveByPriceRows(): Promise<ClientRow[]> {
   const clients = await prisma.client.findMany({
-    where: { accountStatus: { in: ['Live', 'Pre-Launch'] } },
+    where: {
+      accountStatus: { in: ['Live', 'Pre-Launch'] },
+      ...FLOOR9_WHERE,
+    },
     select: CLIENT_SELECT,
     orderBy: { organizationName: 'asc' },
   }) as unknown as ClientRaw[];
 
-  return clients
+  return dedupeGhosts(clients)
     .map(buildRow)
-    .filter((r) => r.isRecurringMonthly)
-    .sort((a, b) => (b.largestSubAmount ?? 0) - (a.largestSubAmount ?? 0));
+    .filter((r) => !r.paidUpfront && r.monthlyRetainer !== null && r.monthlyRetainer > 0)
+    .sort((a, b) => (b.monthlyRetainer ?? 0) - (a.monthlyRetainer ?? 0));
 }
 
 // ---------------------------------------------------------------------------
@@ -258,18 +302,22 @@ export async function getActiveByPriceRows(): Promise<ClientRow[]> {
 // ---------------------------------------------------------------------------
 export async function getLivePilotRows(): Promise<ClientRow[]> {
   const clients = await prisma.client.findMany({
-    where: { accountStatus: 'Live' },
+    where: {
+      accountStatus: 'Live',
+      ...FLOOR9_WHERE,
+    },
     select: CLIENT_SELECT,
     orderBy: { organizationName: 'asc' },
   }) as unknown as ClientRaw[];
 
-  return clients.map(buildRow);
+  return dedupeGhosts(clients).map(buildRow);
 }
 
 // ---------------------------------------------------------------------------
-// Stats (runs on every page load — feeds the master stats section)
+// Stats — master KPI section
 // ---------------------------------------------------------------------------
 export type Stats = {
+  // Row 1: pilot counts
   totalClients: number;
   pilotsEndingNext10Days: number;
   pilotsEndingThisMonth: number;
@@ -278,17 +326,16 @@ export type Stats = {
   thisMonthName: string;
   nextMonthName: string;
   monthAfterNextName: string;
-  lastMonthName: string;
-  revenueLastMonth: number;
-  revenueMtd: number;
-  revenueForecast: number;
-  revenuePostPilotRecurring: number;
+  // Row 2: revenue
+  postPilotRevenueThisMonth: number; // sum of monthlyRetainer for live post-pilot clients
+  revenueMtd: number;                // ok-successful payments in current month
+  revenueForecast: number;           // MTD + nextBillDates remaining this month
+  revenueForecastNextMonth: number;  // nextBillDates falling in next calendar month
+  revenuePriorMonth: number;         // ok-successful payments in prior month (ALL clients)
 };
 
 export async function getStats(): Promise<Stats> {
   const now = new Date();
-
-  // Calendar boundaries
   const y = now.getFullYear();
   const m = now.getMonth();
 
@@ -301,8 +348,7 @@ export async function getStats(): Promise<Stats> {
   const m2Start         = new Date(y, m + 2, 1);
   const m2End           = new Date(y, m + 3, 0, 23, 59, 59, 999);
 
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
+  const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
   const tenDaysEnd = new Date(todayStart);
   tenDaysEnd.setDate(tenDaysEnd.getDate() + 10);
   tenDaysEnd.setHours(23, 59, 59, 999);
@@ -311,34 +357,66 @@ export async function getStats(): Promise<Stats> {
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(0, 0, 0, 0);
 
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  const clients = await prisma.client.findMany({
-    where: { accountStatus: { in: ['Live', 'Pre-Launch'] } },
+  // Fetch all live/pre-launch clients (Floor 9 filtered + deduped) for pilot counts
+  const rawClients = await prisma.client.findMany({
+    where: {
+      accountStatus: { in: ['Live', 'Pre-Launch'] },
+      ...FLOOR9_WHERE,
+    },
     select: {
       accountStatus: true,
       pilotRolloverEndDate: true,
       financeNotes: true,
+      monthlyRetainer: true,
+      chargeoverCustomerId: true,
+      actualLaunchDate: true,
       subscriptions: { select: { status: true, amount: true, lineItems: true } },
-      payments: {
-        select: { amount: true, paidDate: true, status: true },
-      },
     },
-  });
+  }) as unknown as Array<{
+    accountStatus: string;
+    pilotRolloverEndDate: Date | null;
+    financeNotes: string | null;
+    monthlyRetainer: unknown;
+    chargeoverCustomerId: string | null;
+    actualLaunchDate: Date | null;
+    subscriptions: SubRaw[];
+  }>;
 
-  let totalClients = clients.length;
+  const clients = dedupeGhosts(rawClients.map((c) => ({ ...c, id: '', engagementType: null, dealType: null, brandName: null })));
+
+  // Prior month revenue: ALL payments regardless of client status (catches any client in DB)
+  const [priorMonthAgg, mtdAgg] = await Promise.all([
+    prisma.payment.aggregate({
+      where: {
+        status: { in: PAID_STATUSES },
+        paidDate: { gte: lastMonthStart, lte: lastMonthEnd },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.payment.aggregate({
+      where: {
+        status: { in: PAID_STATUSES },
+        paidDate: { gte: thisMonthStart, lte: now },
+      },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  let totalClients = 0;
   let pilotsEndingNext10Days = 0;
   let pilotsEndingThisMonth = 0;
   let pilotsEndingNextMonth = 0;
   let pilotsEndingMonthAfterNext = 0;
-  let revenueLastMonth = 0;
-  let revenueMtd = 0;
-  let revenueFuture = 0; // nextBillDates falling tomorrow–end of this month
-  let revenuePostPilotRecurring = 0;
+  let postPilotRevenueThisMonth = 0;
+  let revenueFuture = 0;
+  let revenueForecastNextMonth = 0;
 
   for (const c of clients) {
-    // Pilot month counts
+    totalClients++;
+
     if (c.pilotRolloverEndDate) {
       const pd = new Date(c.pilotRolloverEndDate);
       if (pd >= todayStart && pd <= tenDaysEnd) pilotsEndingNext10Days++;
@@ -347,39 +425,38 @@ export async function getStats(): Promise<Stats> {
       else if (pd >= m2Start && pd <= m2End) pilotsEndingMonthAfterNext++;
     }
 
-    // Revenue from payments
-    for (const p of c.payments) {
-      if (!PAID_STATUSES.includes((p.status ?? '').toLowerCase())) continue;
-      const pd = p.paidDate ? new Date(p.paidDate) : null;
-      if (!pd) continue;
-      if (pd >= lastMonthStart && pd <= lastMonthEnd) revenueLastMonth += Number(p.amount);
-      if (pd >= thisMonthStart && pd <= now) revenueMtd += Number(p.amount);
+    // Post-pilot MRR (monthlyRetainer × active post-pilot live clients)
+    const retainer = c.monthlyRetainer != null ? Number(c.monthlyRetainer) : null;
+    const fn = (c.financeNotes ?? '').toLowerCase();
+    const isPaidUpfront = fn.includes('paid upfront') || (retainer !== null && retainer > 3000);
+    const pilotEnd = c.pilotRolloverEndDate ? new Date(c.pilotRolloverEndDate) : null;
+    if (
+      c.accountStatus === 'Live' &&
+      pilotEnd && pilotEnd <= now &&
+      !isPaidUpfront &&
+      retainer !== null
+    ) {
+      postPilotRevenueThisMonth += retainer;
     }
 
-    // Future payments this month (nextBillDate between tomorrow and end of this month)
+    // Future payment forecasts from ChargeOver nextBillDates
     const activeSubs = (c.subscriptions as SubRaw[]).filter((s) => isActive(s.status));
-    const sortedSubs = [...activeSubs].sort((a, b) => subAmount(b) - subAmount(a));
-    const largestSub = sortedSubs[0] ?? null;
-
+    const largestSub = [...activeSubs].sort((a, b) => subAmount(b) - subAmount(a))[0] ?? null;
     if (largestSub) {
       const nextBill = getNextBillDate(largestSub);
-      if (nextBill && nextBill >= tomorrow && nextBill <= thisMonthEnd) {
-        revenueFuture += subAmount(largestSub);
-      }
-
-      // Post-pilot recurring: live clients past pilot with an active sub
-      const fn = (c.financeNotes ?? '').toLowerCase();
-      const paidUpfront = fn.includes('paid upfront');
-      const pilotEnd = c.pilotRolloverEndDate ? new Date(c.pilotRolloverEndDate) : null;
-      if (
-        c.accountStatus === 'Live' &&
-        pilotEnd && pilotEnd <= now &&
-        !paidUpfront
-      ) {
-        revenuePostPilotRecurring += subAmount(largestSub);
+      if (nextBill) {
+        if (nextBill >= tomorrow && nextBill <= thisMonthEnd) {
+          revenueFuture += subAmount(largestSub);
+        }
+        if (nextBill >= nextMonthStart && nextBill <= nextMonthEnd) {
+          revenueForecastNextMonth += subAmount(largestSub);
+        }
       }
     }
   }
+
+  const revenueMtd = Number(mtdAgg._sum.amount ?? 0);
+  const revenuePriorMonth = Number(priorMonthAgg._sum.amount ?? 0);
 
   return {
     totalClients,
@@ -387,14 +464,14 @@ export async function getStats(): Promise<Stats> {
     pilotsEndingThisMonth,
     pilotsEndingNextMonth,
     pilotsEndingMonthAfterNext,
-    thisMonthName: monthNames[m],
-    nextMonthName: monthNames[(m + 1) % 12],
-    monthAfterNextName: monthNames[(m + 2) % 12],
-    lastMonthName: monthNames[((m - 1) + 12) % 12],
-    revenueLastMonth,
+    thisMonthName: MONTH_NAMES[m],
+    nextMonthName: MONTH_NAMES[(m + 1) % 12],
+    monthAfterNextName: MONTH_NAMES[(m + 2) % 12],
+    postPilotRevenueThisMonth,
     revenueMtd,
     revenueForecast: revenueMtd + revenueFuture,
-    revenuePostPilotRecurring,
+    revenueForecastNextMonth,
+    revenuePriorMonth,
   };
 }
 

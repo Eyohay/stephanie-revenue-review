@@ -3,9 +3,13 @@
 @tailwind utilities;
 
 :root {
-  --background: #fafafa;
-  --foreground: #111;
-  --color-border-tertiary: #e5e7eb;
+  --background: #0f172a;
+  --bg-card: #1e293b;
+  --bg-elevated: #334155;
+  --foreground: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --border: #334155;
 }
 
 html, body {
@@ -18,3 +22,8 @@ html, body {
 }
 
 * { box-sizing: border-box; }
+
+/* Divider rows inside tables */
+.dark-divide tbody tr {
+  border-bottom: 0.5px solid var(--border);
+}
