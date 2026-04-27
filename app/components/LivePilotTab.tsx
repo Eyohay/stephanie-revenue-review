@@ -10,11 +10,7 @@ const TD = 'px-3 py-2.5 align-top';
 
 type View = 'in-pilot' | 'post-pilot';
 
-type SortKey =
-  | 'pilotRolloverEndDate'
-  | 'monthlyRetainer'
-  | 'nextPaymentDate'
-  | 'monthsOut';
+type SortKey = 'pilotRolloverEndDate' | 'monthlyAmount' | 'nextPaymentDate' | 'monthsOut';
 
 function SortableHeader({
   label,
@@ -29,7 +25,7 @@ function SortableHeader({
   current: SortKey;
   dir: 'asc' | 'desc';
   onSort: (k: SortKey) => void;
-  align?: 'right';
+  align?: 'right' | 'center';
 }) {
   const active = current === sortKey;
   return (
@@ -58,7 +54,13 @@ function SortableHeader({
   );
 }
 
-function StaticHeader({ label, align }: { label: string; align?: 'right' | 'center' }) {
+function StaticHeader({
+  label,
+  align,
+}: {
+  label: string;
+  align?: 'right' | 'center';
+}) {
   return (
     <th
       style={{
@@ -143,9 +145,9 @@ function useSortedRows(rows: SerializedClientRow[], defaultKey: SortKey) {
         va = a.pilotRolloverEndDate ? new Date(a.pilotRolloverEndDate).getTime() : Infinity;
         vb = b.pilotRolloverEndDate ? new Date(b.pilotRolloverEndDate).getTime() : Infinity;
         break;
-      case 'monthlyRetainer':
-        va = a.monthlyRetainer ?? 0;
-        vb = b.monthlyRetainer ?? 0;
+      case 'monthlyAmount':
+        va = a.nextPaymentAmount ?? 0;
+        vb = b.nextPaymentAmount ?? 0;
         break;
       case 'nextPaymentDate':
         va = a.nextPaymentDate ? new Date(a.nextPaymentDate).getTime() : Infinity;
@@ -168,7 +170,11 @@ function InPilotTable({ rows }: { rows: SerializedClientRow[] }) {
   const { sorted, sortKey, sortDir, onSort } = useSortedRows(rows, 'pilotRolloverEndDate');
 
   if (rows.length === 0) {
-    return <div className="text-center py-8 text-sm" style={{ color: 'var(--text-secondary)' }}>No clients in pilot.</div>;
+    return (
+      <div className="text-center py-8 text-sm" style={{ color: 'var(--text-secondary)' }}>
+        No clients in pilot.
+      </div>
+    );
   }
   return (
     <div className="overflow-x-auto">
@@ -177,56 +183,95 @@ function InPilotTable({ rows }: { rows: SerializedClientRow[] }) {
           <tr>
             <StaticHeader label="Client" />
             <StaticHeader label="Links" />
-            <SortableHeader label="Pilot ends" sortKey="pilotRolloverEndDate" current={sortKey} dir={sortDir} onSort={onSort} />
+            <SortableHeader
+              label="Pilot ends"
+              sortKey="pilotRolloverEndDate"
+              current={sortKey}
+              dir={sortDir}
+              onSort={onSort}
+            />
             <StaticHeader label="Tier" />
             <StaticHeader label="Subs" align="center" />
             <StaticHeader label="Last payment" />
-            <SortableHeader label="Next payment" sortKey="nextPaymentDate" current={sortKey} dir={sortDir} onSort={onSort} />
-            <SortableHeader label="Monthly amount" sortKey="monthlyRetainer" current={sortKey} dir={sortDir} onSort={onSort} align="right" />
+            <SortableHeader
+              label="Next payment"
+              sortKey="nextPaymentDate"
+              current={sortKey}
+              dir={sortDir}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Monthly amount"
+              sortKey="monthlyAmount"
+              current={sortKey}
+              dir={sortDir}
+              onSort={onSort}
+              align="right"
+            />
           </tr>
         </thead>
         <tbody>
           {sorted.map((r) => (
             <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>{r.organizationName}</td>
+              <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
+                {r.organizationName}
+              </td>
               <td className={TD}>
                 <LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} />
               </td>
               <td className={TD}>
                 {r.pilotRolloverEndDate ? (
                   <div>
-                    <div className="font-medium" style={{ color: 'var(--foreground)' }}>{formatDate(r.pilotRolloverEndDate)}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>{relativeDays(r.pilotRolloverEndDate)}</div>
+                    <div className="font-medium" style={{ color: 'var(--foreground)' }}>
+                      {formatDate(r.pilotRolloverEndDate)}
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                      {relativeDays(r.pilotRolloverEndDate)}
+                    </div>
                   </div>
-                ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                )}
               </td>
-              <td className={TD}><TierBadge tier={r.tier} /></td>
-              <td className={TD} style={{ textAlign: 'center', color: 'var(--foreground)' }}>{r.activeSubscriptionCount}</td>
+              <td className={TD}>
+                <TierBadge tier={r.tier} />
+              </td>
+              <td className={TD} style={{ textAlign: 'center', color: 'var(--foreground)' }}>
+                {r.activeSubscriptionCount}
+              </td>
               <td className={TD}>
                 {r.lastPaymentDate ? (
                   <div>
                     <div className="flex items-center gap-1">
-                      <span style={{ color: 'var(--foreground)' }}>{formatDate(r.lastPaymentDate)}</span>
+                      <span style={{ color: 'var(--foreground)' }}>
+                        {formatDate(r.lastPaymentDate)}
+                      </span>
                       {r.lastPaymentPending && <PendingBadge />}
                     </div>
                     <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                       {formatUSDPrecise(r.lastPaymentAmount)} · {daysAgo(r.lastPaymentDate)}
                     </div>
                   </div>
-                ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                )}
               </td>
               <td className={TD}>
                 {r.nextPaymentDate ? (
                   <div>
-                    <div style={{ color: 'var(--foreground)' }}>{formatDate(r.nextPaymentDate)}</div>
+                    <div style={{ color: 'var(--foreground)' }}>
+                      {formatDate(r.nextPaymentDate)}
+                    </div>
                     <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                       {formatUSDPrecise(r.nextPaymentAmount)} · {daysAgo(r.nextPaymentDate)}
                     </div>
                   </div>
-                ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                )}
               </td>
               <td className={TD} style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}>
-                {r.monthlyRetainer !== null ? formatUSD(r.monthlyRetainer) : '—'}
+                {r.nextPaymentAmount !== null ? formatUSD(r.nextPaymentAmount) : '—'}
               </td>
             </tr>
           ))}
@@ -241,7 +286,11 @@ function PostPilotTable({ rows }: { rows: SerializedClientRow[] }) {
   const now = new Date();
 
   if (rows.length === 0) {
-    return <div className="text-center py-8 text-sm" style={{ color: 'var(--text-secondary)' }}>No post-pilot clients.</div>;
+    return (
+      <div className="text-center py-8 text-sm" style={{ color: 'var(--text-secondary)' }}>
+        No post-pilot clients.
+      </div>
+    );
   }
   return (
     <div className="overflow-x-auto">
@@ -250,62 +299,114 @@ function PostPilotTable({ rows }: { rows: SerializedClientRow[] }) {
           <tr>
             <StaticHeader label="Client" />
             <StaticHeader label="Links" />
-            <SortableHeader label="Pilot ended" sortKey="pilotRolloverEndDate" current={sortKey} dir={sortDir} onSort={onSort} />
-            <SortableHeader label="Months since pilot ended" sortKey="monthsOut" current={sortKey} dir={sortDir} onSort={onSort} />
+            <SortableHeader
+              label="Pilot ended"
+              sortKey="pilotRolloverEndDate"
+              current={sortKey}
+              dir={sortDir}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Months since pilot ended"
+              sortKey="monthsOut"
+              current={sortKey}
+              dir={sortDir}
+              onSort={onSort}
+            />
             <StaticHeader label="Tier" />
             <StaticHeader label="Subs" align="center" />
             <StaticHeader label="Last payment" />
-            <SortableHeader label="Next payment" sortKey="nextPaymentDate" current={sortKey} dir={sortDir} onSort={onSort} />
-            <SortableHeader label="Monthly amount" sortKey="monthlyRetainer" current={sortKey} dir={sortDir} onSort={onSort} align="right" />
+            <SortableHeader
+              label="Next payment"
+              sortKey="nextPaymentDate"
+              current={sortKey}
+              dir={sortDir}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Monthly amount"
+              sortKey="monthlyAmount"
+              current={sortKey}
+              dir={sortDir}
+              onSort={onSort}
+              align="right"
+            />
           </tr>
         </thead>
         <tbody>
           {sorted.map((r) => {
-            const mo = r.pilotRolloverEndDate ? monthsApart(r.pilotRolloverEndDate, now) : null;
+            const mo = r.pilotRolloverEndDate
+              ? monthsApart(r.pilotRolloverEndDate, now)
+              : null;
             return (
               <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>{r.organizationName}</td>
+                <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
+                  {r.organizationName}
+                </td>
                 <td className={TD}>
                   <LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} />
                 </td>
                 <td className={TD}>
                   {r.pilotRolloverEndDate ? (
                     <div>
-                      <div className="font-medium" style={{ color: 'var(--foreground)' }}>{formatDate(r.pilotRolloverEndDate)}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>{relativeDays(r.pilotRolloverEndDate)}</div>
+                      <div className="font-medium" style={{ color: 'var(--foreground)' }}>
+                        {formatDate(r.pilotRolloverEndDate)}
+                      </div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                        {relativeDays(r.pilotRolloverEndDate)}
+                      </div>
                     </div>
-                  ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  )}
                 </td>
                 <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
                   {mo !== null ? mo : '—'}
                 </td>
-                <td className={TD}><TierBadge tier={r.tier} /></td>
-                <td className={TD} style={{ textAlign: 'center', color: 'var(--foreground)' }}>{r.activeSubscriptionCount}</td>
+                <td className={TD}>
+                  <TierBadge tier={r.tier} />
+                </td>
+                <td className={TD} style={{ textAlign: 'center', color: 'var(--foreground)' }}>
+                  {r.activeSubscriptionCount}
+                </td>
                 <td className={TD}>
                   {r.lastPaymentDate ? (
                     <div>
                       <div className="flex items-center gap-1">
-                        <span style={{ color: 'var(--foreground)' }}>{formatDate(r.lastPaymentDate)}</span>
+                        <span style={{ color: 'var(--foreground)' }}>
+                          {formatDate(r.lastPaymentDate)}
+                        </span>
                         {r.lastPaymentPending && <PendingBadge />}
                       </div>
                       <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                        {formatUSDPrecise(r.lastPaymentAmount)} · {daysAgo(r.lastPaymentDate)}
+                        {formatUSDPrecise(r.lastPaymentAmount)} ·{' '}
+                        {daysAgo(r.lastPaymentDate)}
                       </div>
                     </div>
-                  ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  )}
                 </td>
                 <td className={TD}>
                   {r.nextPaymentDate ? (
                     <div>
-                      <div style={{ color: 'var(--foreground)' }}>{formatDate(r.nextPaymentDate)}</div>
+                      <div style={{ color: 'var(--foreground)' }}>
+                        {formatDate(r.nextPaymentDate)}
+                      </div>
                       <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                        {formatUSDPrecise(r.nextPaymentAmount)} · {daysAgo(r.nextPaymentDate)}
+                        {formatUSDPrecise(r.nextPaymentAmount)} ·{' '}
+                        {daysAgo(r.nextPaymentDate)}
                       </div>
                     </div>
-                  ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  )}
                 </td>
-                <td className={TD} style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}>
-                  {r.monthlyRetainer !== null ? formatUSD(r.monthlyRetainer) : '—'}
+                <td
+                  className={TD}
+                  style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}
+                >
+                  {r.nextPaymentAmount !== null ? formatUSD(r.nextPaymentAmount) : '—'}
                 </td>
               </tr>
             );

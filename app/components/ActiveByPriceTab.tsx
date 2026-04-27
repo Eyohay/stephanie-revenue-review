@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { type SerializedClientRow } from '@/lib/query';
-import { formatUSD } from '@/lib/format';
+import { formatDate, formatUSD, formatUSDPrecise, daysAgo } from '@/lib/format';
 import { LinkPills } from './LinkPills';
-import { StatusBadge } from './StatusBadge';
+import { StatusBadge, PendingBadge } from './StatusBadge';
 
 const TH_STYLE: React.CSSProperties = {
   background: 'var(--bg-elevated)',
@@ -73,9 +73,10 @@ export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[]
     return true;
   });
 
+  // Bucket by nextPaymentAmount (= next scheduled invoice total)
   const bucketMap = new Map<number, SerializedClientRow[]>();
   for (const r of filtered) {
-    const b = getBucket(r.monthlyRetainer);
+    const b = getBucket(r.nextPaymentAmount);
     if (!bucketMap.has(b)) bucketMap.set(b, []);
     bucketMap.get(b)!.push(r);
   }
@@ -100,7 +101,11 @@ export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[]
   ];
 
   if (rows.length === 0) {
-    return <div className="text-center py-12 text-sm" style={{ color: 'var(--text-secondary)' }}>No recurring monthly clients.</div>;
+    return (
+      <div className="text-center py-12 text-sm" style={{ color: 'var(--text-secondary)' }}>
+        No recurring monthly clients.
+      </div>
+    );
   }
 
   return (
@@ -137,12 +142,23 @@ export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[]
             >
               <span
                 className="transition-transform"
-                style={{ fontSize: 9, transform: isCollapsed ? 'none' : 'rotate(90deg)', display: 'inline-block', color: 'var(--text-muted)' }}
+                style={{
+                  fontSize: 9,
+                  transform: isCollapsed ? 'none' : 'rotate(90deg)',
+                  display: 'inline-block',
+                  color: 'var(--text-muted)',
+                }}
               >
                 ▶
               </span>
               <span>{bucketLabel(low)}</span>
-              <span style={{ fontWeight: 400, textTransform: 'none', color: 'var(--text-muted)' }}>
+              <span
+                style={{
+                  fontWeight: 400,
+                  textTransform: 'none',
+                  color: 'var(--text-muted)',
+                }}
+              >
                 ({bRows.length} client{bRows.length !== 1 ? 's' : ''})
               </span>
             </button>
@@ -158,19 +174,73 @@ export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[]
                       <th style={TH_STYLE}>Client</th>
                       <th style={TH_STYLE}>Links</th>
                       <th style={TH_STYLE}>Status</th>
+                      <th style={TH_STYLE}>Last payment</th>
+                      <th style={TH_STYLE}>Next payment</th>
                       <th style={{ ...TH_STYLE, textAlign: 'right' }}>Monthly amount</th>
                     </tr>
                   </thead>
                   <tbody>
                     {bRows.map((r) => (
                       <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>{r.organizationName}</td>
-                        <td className={TD}>
-                          <LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} />
+                        <td
+                          className={TD}
+                          style={{ fontWeight: 500, color: 'var(--foreground)' }}
+                        >
+                          {r.organizationName}
                         </td>
-                        <td className={TD}><StatusBadge status={r.accountStatus} /></td>
-                        <td className={TD} style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}>
-                          {r.monthlyRetainer !== null ? formatUSD(r.monthlyRetainer) : '—'}
+                        <td className={TD}>
+                          <LinkPills
+                            orgId={r.pipedriveOrgId}
+                            customerId={r.chargeoverCustomerId}
+                          />
+                        </td>
+                        <td className={TD}>
+                          <StatusBadge status={r.accountStatus} />
+                        </td>
+                        <td className={TD}>
+                          {r.lastPaymentDate ? (
+                            <div>
+                              <div className="flex items-center gap-1">
+                                <span style={{ color: 'var(--foreground)' }}>
+                                  {formatDate(r.lastPaymentDate)}
+                                </span>
+                                {r.lastPaymentPending && <PendingBadge />}
+                              </div>
+                              <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                                {formatUSDPrecise(r.lastPaymentAmount)} ·{' '}
+                                {daysAgo(r.lastPaymentDate)}
+                              </div>
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)' }}>—</span>
+                          )}
+                        </td>
+                        <td className={TD}>
+                          {r.nextPaymentDate ? (
+                            <div>
+                              <div style={{ color: 'var(--foreground)' }}>
+                                {formatDate(r.nextPaymentDate)}
+                              </div>
+                              <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                                {formatUSDPrecise(r.nextPaymentAmount)} ·{' '}
+                                {daysAgo(r.nextPaymentDate)}
+                              </div>
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)' }}>—</span>
+                          )}
+                        </td>
+                        <td
+                          className={TD}
+                          style={{
+                            textAlign: 'right',
+                            fontWeight: 500,
+                            color: 'var(--foreground)',
+                          }}
+                        >
+                          {r.nextPaymentAmount !== null
+                            ? formatUSD(r.nextPaymentAmount)
+                            : '—'}
                         </td>
                       </tr>
                     ))}

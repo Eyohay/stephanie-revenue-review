@@ -43,10 +43,7 @@ export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr
-              key={r.id}
-              style={{ borderBottom: '1px solid var(--border)' }}
-            >
+            <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
               <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
                 {r.organizationName}
               </td>
@@ -56,46 +53,68 @@ export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }
               <td className={TD}>
                 {r.pilotRolloverEndDate ? (
                   <div>
-                    <div className="font-medium" style={{ color: 'var(--foreground)' }}>{formatDate(r.pilotRolloverEndDate)}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>{relativeDays(r.pilotRolloverEndDate)}</div>
+                    <div className="font-medium" style={{ color: 'var(--foreground)' }}>
+                      {formatDate(r.pilotRolloverEndDate)}
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                      {relativeDays(r.pilotRolloverEndDate)}
+                    </div>
                   </div>
-                ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                )}
               </td>
-              <td className={TD}><TierBadge tier={r.tier} /></td>
+              <td className={TD}>
+                <TierBadge tier={r.tier} />
+              </td>
               <td className={TD} style={{ textAlign: 'right' }}>
-                {r.monthlyRetainer !== null ? (
+                {r.nextPaymentAmount !== null ? (
                   <div className="flex items-center justify-end gap-1 flex-wrap">
                     <span style={{ fontWeight: 500, color: 'var(--foreground)' }}>
-                      {formatUSD(r.monthlyRetainer)}<span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>/mo</span>
+                      {formatUSD(r.nextPaymentAmount)}
+                      <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>/mo</span>
                     </span>
                     {r.paidUpfront && <PaidUpfrontBadge />}
                   </div>
-                ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                )}
               </td>
               <td className={TD}>
                 {r.lastPaymentDate ? (
                   <div>
                     <div className="flex items-center gap-1">
-                      <span style={{ color: 'var(--foreground)' }}>{formatDate(r.lastPaymentDate)}</span>
+                      <span style={{ color: 'var(--foreground)' }}>
+                        {formatDate(r.lastPaymentDate)}
+                      </span>
                       {r.lastPaymentPending && <PendingBadge />}
                     </div>
                     <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                       {formatUSDPrecise(r.lastPaymentAmount)} · {daysAgo(r.lastPaymentDate)}
                     </div>
                   </div>
-                ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                )}
               </td>
               <td className={TD}>
                 {r.nextPaymentDate ? (
                   <div>
-                    <div style={{ color: 'var(--foreground)' }}>{formatDate(r.nextPaymentDate)}</div>
+                    <div style={{ color: 'var(--foreground)' }}>
+                      {formatDate(r.nextPaymentDate)}
+                    </div>
                     <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                       {formatUSDPrecise(r.nextPaymentAmount)} · {daysAgo(r.nextPaymentDate)}
                     </div>
                   </div>
-                ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                )}
               </td>
-              <td className={TD} style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}>
+              <td
+                className={TD}
+                style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}
+              >
                 {formatUSD(r.lifetimeTotalPaid)}
               </td>
             </tr>
