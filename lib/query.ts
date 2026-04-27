@@ -27,16 +27,27 @@ const FLOOR9_WHERE = {
  *
  * ChargeOver stores per-line-item bill dates inside the lineItems JSON array.
  * Each element has: nextBillDate (or next_bill_date), unitPrice (or unit_price),
- * quantity (or qty).
+ * quantity (or qty), type ("service" | "discount").
+ *
+ * Two bugs fixed here (discovered round 5):
+ *   BUG 1 — "Monthly Credit" and similar discount line items (type="discount") were
+ *   being summed as positive charges, inflating totals by the credit amount. The
+ *   database contains only two type values: "service" and "discount". Only "service"
+ *   items are real charges; discounts must be excluded.
+ *
+ *   BUG 2 — ChargeOver stores dates as "YYYY-MM-DD HH:MM:SS" without a TZ suffix.
+ *   JavaScript parses these as local time; on Vercel (UTC) the ISO serialization is
+ *   "YYYY-MM-DDT00:00:01.000Z", which renders as the previous day in Eastern-timezone
+ *   browsers. Fix: extract only the YYYY-MM-DD portion and anchor to noon UTC, making
+ *   the displayed date correct in any timezone.
  *
  * Strategy:
- *   1. Find the soonest FUTURE nextBillDate across all line items.
- *   2. Sum unitPrice × quantity for every line item sharing that exact date.
+ *   1. Discard discount items (type === "discount").
+ *   2. Find the soonest FUTURE date across remaining items (YYYY-MM-DD string compare).
+ *   3. Sum unitPrice × quantity for all service items sharing that date.
  *
- * Date-only (YYYY-MM-DD) comparison is used to avoid UTC-midnight TZ edge-cases.
- *
- * Returns null when no future date exists — subscription paused, expired, or
- * paid upfront with no recurring invoice scheduled.
+ * Returns null when no service items have a future date — subscription paused,
+ * expired, or paid upfront.
  */
 function nextInvoiceTotal(
   sub: { lineItems: unknown },
@@ -49,35 +60,47 @@ function nextInvoiceTotal(
     unit_price?: number;
     quantity?: number;
     qty?: number;
+    type?: string;
   };
 
   const liArr = sub.lineItems as LineItem[] | null;
   if (!Array.isArray(liArr) || liArr.length === 0) return null;
 
-  // Step 1: find the soonest future bill date
-  let soonest: Date | null = null;
-  for (const item of liArr) {
+  // Exclude discount/credit items — type="discount" means a credit applied to the
+  // invoice (e.g. "Monthly Credit"). ChargeOver stores these with a positive unitPrice
+  // but they reduce the invoice; sub.amount already reflects the correct total without
+  // them. The only non-discount type observed in production data is "service".
+  const serviceItems = liArr.filter((item) => item?.type !== 'discount');
+  if (serviceItems.length === 0) return null;
+
+  // Normalize date strings to YYYY-MM-DD for comparison (avoids TZ edge-cases).
+  // ChargeOver format: "2026-05-11 00:00:01" — split on space or T to get date part.
+  const toDay = (raw: string): string => raw.split(/[\sT]/)[0];
+  const todayUTC = now.toISOString().slice(0, 10);
+
+  // Step 1: find the soonest future bill date across service items
+  let soonestDay: string | null = null;
+  for (const item of serviceItems) {
     const raw = item?.nextBillDate ?? item?.next_bill_date;
     if (!raw) continue;
-    const d = new Date(raw);
-    if (d > now && (!soonest || d < soonest)) soonest = d;
+    const day = toDay(String(raw));
+    if (day > todayUTC && (!soonestDay || day < soonestDay)) soonestDay = day;
   }
-  if (!soonest) return null;
+  if (!soonestDay) return null;
 
-  const soonestDay = soonest.toISOString().slice(0, 10);
-
-  // Step 2: sum all line items on that date
+  // Step 2: sum service items on that date
   let total = 0;
-  for (const item of liArr) {
+  for (const item of serviceItems) {
     const raw = item?.nextBillDate ?? item?.next_bill_date;
-    if (!raw) continue;
-    if (new Date(raw).toISOString().slice(0, 10) !== soonestDay) continue;
+    if (!raw || toDay(String(raw)) !== soonestDay) continue;
     const price = item.unitPrice ?? item.unit_price ?? 0;
     const qty = item.quantity ?? item.qty ?? 1;
     total += price * qty;
   }
 
-  return total > 0 ? { date: soonest, amount: total } : null;
+  // Anchor date to noon UTC so formatDate() renders the correct calendar date in
+  // any client timezone (avoids Eastern-timezone off-by-one on UTC-midnight dates).
+  return total > 0 ? { date: new Date(soonestDay + 'T12:00:00.000Z'), amount: total } : null;
 }
 
 function isActive(status: string | null): boolean {

@@ -31,6 +31,12 @@ function bucketLabel(low: number): string {
   return `${formatUSD(low)} – ${formatUSD(low + 250)}/mo`;
 }
 
+function hasMismatch(last: number | null, next: number | null): boolean {
+  if (last === null || next === null) return false;
+  const tolerance = Math.max(Math.max(last, next) * 0.05, 50);
+  return Math.abs(last - next) > tolerance;
+}
+
 function SegmentedControl({
   value,
   onChange,
@@ -73,7 +79,6 @@ export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[]
     return true;
   });
 
-  // Bucket by nextPaymentAmount (= next scheduled invoice total)
   const bucketMap = new Map<number, SerializedClientRow[]>();
   for (const r of filtered) {
     const b = getBucket(r.nextPaymentAmount);
@@ -152,13 +157,7 @@ export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[]
                 ▶
               </span>
               <span>{bucketLabel(low)}</span>
-              <span
-                style={{
-                  fontWeight: 400,
-                  textTransform: 'none',
-                  color: 'var(--text-muted)',
-                }}
-              >
+              <span style={{ fontWeight: 400, textTransform: 'none', color: 'var(--text-muted)' }}>
                 ({bRows.length} client{bRows.length !== 1 ? 's' : ''})
               </span>
             </button>
@@ -180,70 +179,75 @@ export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[]
                     </tr>
                   </thead>
                   <tbody>
-                    {bRows.map((r) => (
-                      <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td
-                          className={TD}
-                          style={{ fontWeight: 500, color: 'var(--foreground)' }}
-                        >
-                          {r.organizationName}
-                        </td>
-                        <td className={TD}>
-                          <LinkPills
-                            orgId={r.pipedriveOrgId}
-                            customerId={r.chargeoverCustomerId}
-                          />
-                        </td>
-                        <td className={TD}>
-                          <StatusBadge status={r.accountStatus} />
-                        </td>
-                        <td className={TD}>
-                          {r.lastPaymentDate ? (
-                            <div>
-                              <div className="flex items-center gap-1">
-                                <span style={{ color: 'var(--foreground)' }}>
-                                  {formatDate(r.lastPaymentDate)}
-                                </span>
-                                {r.lastPaymentPending && <PendingBadge />}
-                              </div>
-                              <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                                {formatUSDPrecise(r.lastPaymentAmount)} ·{' '}
-                                {daysAgo(r.lastPaymentDate)}
-                              </div>
-                            </div>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)' }}>—</span>
-                          )}
-                        </td>
-                        <td className={TD}>
-                          {r.nextPaymentDate ? (
-                            <div>
-                              <div style={{ color: 'var(--foreground)' }}>
-                                {formatDate(r.nextPaymentDate)}
-                              </div>
-                              <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                                {formatUSDPrecise(r.nextPaymentAmount)} ·{' '}
-                                {daysAgo(r.nextPaymentDate)}
-                              </div>
-                            </div>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)' }}>—</span>
-                          )}
-                        </td>
-                        <td
-                          className={TD}
+                    {bRows.map((r) => {
+                      const mismatch = hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
+                      return (
+                        <tr
+                          key={r.id}
                           style={{
-                            textAlign: 'right',
-                            fontWeight: 500,
-                            color: 'var(--foreground)',
+                            borderBottom: '1px solid var(--border)',
+                            borderLeft: mismatch ? '3px solid #f59e0b' : '3px solid transparent',
                           }}
                         >
-                          {r.nextPaymentAmount !== null
-                            ? formatUSD(r.nextPaymentAmount)
-                            : '—'}
-                        </td>
-                      </tr>
-                    ))}
+                          <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
+                            {r.organizationName}
+                          </td>
+                          <td className={TD}>
+                            <LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} />
+                          </td>
+                          <td className={TD}>
+                            <StatusBadge status={r.accountStatus} />
+                          </td>
+                          <td className={TD}>
+                            {r.lastPaymentDate ? (
+                              <div>
+                                <div className="flex items-center gap-1">
+                                  <span style={{ color: 'var(--foreground)' }}>
+                                    {formatDate(r.lastPaymentDate)}
+                                  </span>
+                                  {r.lastPaymentPending && <PendingBadge />}
+                                </div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                                  {formatUSDPrecise(r.lastPaymentAmount)} · {daysAgo(r.lastPaymentDate)}
+                                </div>
+                              </div>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>—</span>
+                            )}
+                          </td>
+                          <td className={TD}>
+                            {r.nextPaymentDate ? (
+                              <div>
+                                <div className="flex items-center gap-1">
+                                  <span style={{ color: 'var(--foreground)' }}>
+                                    {formatDate(r.nextPaymentDate)}
+                                  </span>
+                                  {mismatch && (
+                                    <span
+                                      title={`Last payment (${formatUSDPrecise(r.lastPaymentAmount)}) doesn't match next scheduled (${formatUSDPrecise(r.nextPaymentAmount)})`}
+                                      style={{ color: '#f59e0b', cursor: 'help', fontSize: 12, lineHeight: 1 }}
+                                    >
+                                      ⚠
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                                  {formatUSDPrecise(r.nextPaymentAmount)} · {daysAgo(r.nextPaymentDate)}
+                                </div>
+                              </div>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>—</span>
+                            )}
+                          </td>
+                          <td
+                            className={TD}
+                            style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}
+                          >
+                            {r.nextPaymentAmount !== null ? formatUSD(r.nextPaymentAmount) : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

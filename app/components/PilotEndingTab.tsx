@@ -17,6 +17,12 @@ const TH_STYLE: React.CSSProperties = {
 };
 const TD = 'px-3 py-2.5 align-top';
 
+function hasMismatch(last: number | null, next: number | null): boolean {
+  if (last === null || next === null) return false;
+  const tolerance = Math.max(Math.max(last, next) * 0.05, 50);
+  return Math.abs(last - next) > tolerance;
+}
+
 export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }) {
   if (rows.length === 0) {
     return (
@@ -42,83 +48,102 @@ export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
-                {r.organizationName}
-              </td>
-              <td className={TD}>
-                <LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} />
-              </td>
-              <td className={TD}>
-                {r.pilotRolloverEndDate ? (
-                  <div>
-                    <div className="font-medium" style={{ color: 'var(--foreground)' }}>
-                      {formatDate(r.pilotRolloverEndDate)}
-                    </div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                      {relativeDays(r.pilotRolloverEndDate)}
-                    </div>
-                  </div>
-                ) : (
-                  <span style={{ color: 'var(--text-muted)' }}>—</span>
-                )}
-              </td>
-              <td className={TD}>
-                <TierBadge tier={r.tier} />
-              </td>
-              <td className={TD} style={{ textAlign: 'right' }}>
-                {r.nextPaymentAmount !== null ? (
-                  <div className="flex items-center justify-end gap-1 flex-wrap">
-                    <span style={{ fontWeight: 500, color: 'var(--foreground)' }}>
-                      {formatUSD(r.nextPaymentAmount)}
-                      <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>/mo</span>
-                    </span>
-                    {r.paidUpfront && <PaidUpfrontBadge />}
-                  </div>
-                ) : (
-                  <span style={{ color: 'var(--text-muted)' }}>—</span>
-                )}
-              </td>
-              <td className={TD}>
-                {r.lastPaymentDate ? (
-                  <div>
-                    <div className="flex items-center gap-1">
-                      <span style={{ color: 'var(--foreground)' }}>
-                        {formatDate(r.lastPaymentDate)}
-                      </span>
-                      {r.lastPaymentPending && <PendingBadge />}
-                    </div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                      {formatUSDPrecise(r.lastPaymentAmount)} · {daysAgo(r.lastPaymentDate)}
-                    </div>
-                  </div>
-                ) : (
-                  <span style={{ color: 'var(--text-muted)' }}>—</span>
-                )}
-              </td>
-              <td className={TD}>
-                {r.nextPaymentDate ? (
-                  <div>
-                    <div style={{ color: 'var(--foreground)' }}>
-                      {formatDate(r.nextPaymentDate)}
-                    </div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                      {formatUSDPrecise(r.nextPaymentAmount)} · {daysAgo(r.nextPaymentDate)}
-                    </div>
-                  </div>
-                ) : (
-                  <span style={{ color: 'var(--text-muted)' }}>—</span>
-                )}
-              </td>
-              <td
-                className={TD}
-                style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}
+          {rows.map((r) => {
+            const mismatch = hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
+            return (
+              <tr
+                key={r.id}
+                style={{
+                  borderBottom: '1px solid var(--border)',
+                  borderLeft: mismatch ? '3px solid #f59e0b' : '3px solid transparent',
+                }}
               >
-                {formatUSD(r.lifetimeTotalPaid)}
-              </td>
-            </tr>
-          ))}
+                <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
+                  {r.organizationName}
+                </td>
+                <td className={TD}>
+                  <LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} />
+                </td>
+                <td className={TD}>
+                  {r.pilotRolloverEndDate ? (
+                    <div>
+                      <div className="font-medium" style={{ color: 'var(--foreground)' }}>
+                        {formatDate(r.pilotRolloverEndDate)}
+                      </div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                        {relativeDays(r.pilotRolloverEndDate)}
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  )}
+                </td>
+                <td className={TD}>
+                  <TierBadge tier={r.tier} />
+                </td>
+                <td className={TD} style={{ textAlign: 'right' }}>
+                  {r.nextPaymentAmount !== null ? (
+                    <div className="flex items-center justify-end gap-1 flex-wrap">
+                      <span style={{ fontWeight: 500, color: 'var(--foreground)' }}>
+                        {formatUSD(r.nextPaymentAmount)}
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>/mo</span>
+                      </span>
+                      {r.paidUpfront && <PaidUpfrontBadge />}
+                    </div>
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  )}
+                </td>
+                <td className={TD}>
+                  {r.lastPaymentDate ? (
+                    <div>
+                      <div className="flex items-center gap-1">
+                        <span style={{ color: 'var(--foreground)' }}>
+                          {formatDate(r.lastPaymentDate)}
+                        </span>
+                        {r.lastPaymentPending && <PendingBadge />}
+                      </div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                        {formatUSDPrecise(r.lastPaymentAmount)} · {daysAgo(r.lastPaymentDate)}
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  )}
+                </td>
+                <td className={TD}>
+                  {r.nextPaymentDate ? (
+                    <div>
+                      <div className="flex items-center gap-1">
+                        <span style={{ color: 'var(--foreground)' }}>
+                          {formatDate(r.nextPaymentDate)}
+                        </span>
+                        {mismatch && (
+                          <span
+                            title={`Last payment (${formatUSDPrecise(r.lastPaymentAmount)}) doesn't match next scheduled (${formatUSDPrecise(r.nextPaymentAmount)})`}
+                            style={{ color: '#f59e0b', cursor: 'help', fontSize: 12, lineHeight: 1 }}
+                          >
+                            ⚠
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                        {formatUSDPrecise(r.nextPaymentAmount)} · {daysAgo(r.nextPaymentDate)}
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  )}
+                </td>
+                <td
+                  className={TD}
+                  style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}
+                >
+                  {formatUSD(r.lifetimeTotalPaid)}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
