@@ -5,143 +5,61 @@ import {
   getLastSyncedAt,
   getStats,
   serializeRow,
-  type ActiveByPriceResult,
 } from '@/lib/query';
-import { getPilotKpiCounts } from '@/lib/pipedrive/queries';
-import PilotEndingTab from '@/app/components/PilotEndingTab';
-import ActiveByPriceTab from '@/app/components/ActiveByPriceTab';
-import LivePilotTab from '@/app/components/LivePilotTab';
-import StatsSection from '@/app/components/StatsSection';
 import PilotsEndingThisMonthLoader from '@/app/components/tabs/PilotsEndingThisMonthLoader';
-import { formatDateTime, daysAgo } from '@/lib/format';
+import DashboardShell from '@/app/components/DashboardShell';
 import { Suspense } from 'react';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-
-type Tab = 'pilot-ending' | 'pilots-this-month' | 'active-by-price' | 'live-pilot-status';
 
 export default async function DashboardPage({
   searchParams,
 }: {
   searchParams: { tab?: string };
 }) {
-  const tab = (searchParams.tab as Tab) || 'pilot-ending';
-
-  const emptyPrice = { rows: [], excluded: [] };
-  const [pilotRows, priceResult, liveRows, lastSyncedAt, stats, pdKpiCounts] = await Promise.all([
-    tab === 'pilot-ending' ? getPilotEndingRows() : Promise.resolve([]),
-    tab === 'active-by-price' ? getActiveByPriceRows() : Promise.resolve(emptyPrice),
-    tab === 'live-pilot-status' ? getLivePilotRows() : Promise.resolve([]),
-    getLastSyncedAt(),
-    getStats(),
-    getPilotKpiCounts(new Date()).catch(() => null),
-  ]);
-
-  // Override the three pilot-month KPI counts with PipeDrive values (source of truth).
-  // Falls back to Neon values if PD call fails.
-  const mergedStats = pdKpiCounts
-    ? {
-        ...stats,
-        pilotsEndingThisMonth:    pdKpiCounts.thisMonth,
-        pilotsEndingNextMonth:    pdKpiCounts.nextMonth,
-        pilotsEndingMonthAfterNext: pdKpiCounts.monthAfterNext,
-      }
-    : stats;
-
-  const serializedPilot = pilotRows.map(serializeRow);
-  const serializedPrice = priceResult.rows.map(serializeRow);
-  const serializedPriceExcluded = priceResult.excluded.map(serializeRow);
-  const serializedLive = liveRows.map(serializeRow);
+  const initialTab = searchParams.tab ?? 'pilot-ending';
 
   const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const currentMonthName = MONTH_NAMES[new Date().getMonth()];
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: 'pilot-ending',       label: `Pilots ending in next 10 days (${stats.pilotsEndingNext10Days})` },
-    { key: 'pilots-this-month',  label: `Pilots ending in ${currentMonthName} · PipeDrive` },
-    { key: 'active-by-price',    label: 'Active clients by price' },
-    { key: 'live-pilot-status',  label: 'Live clients (pilot status)' },
-  ];
+  // Always fetch all DB-backed tabs in parallel — fast (Neon, ~100ms each).
+  // PipeDrive KPI counts are NOT fetched here; StatsSection fetches them
+  // client-side after the page renders so they don't block any tab.
+  // PipeDrive join for Tab 2 is handled by PilotsEndingThisMonthLoader (RSC + Suspense).
+  const [pilotRows, priceResult, liveRows, lastSyncedAt, stats] = await Promise.all([
+    getPilotEndingRows(),
+    getActiveByPriceRows(),
+    getLivePilotRows(),
+    getLastSyncedAt(),
+    getStats(),
+  ]);
+
+  const serializedPilot        = pilotRows.map(serializeRow);
+  const serializedPrice        = priceResult.rows.map(serializeRow);
+  const serializedPriceExcluded = priceResult.excluded.map(serializeRow);
+  const serializedLive         = liveRows.map(serializeRow);
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--background)' }}>
-      {/* Header */}
-      <header style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border)' }}>
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
-              Stephanie Revenue Review
-            </h1>
-            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Live &amp; exec'd out clients — revenue &amp; pilot health
-              {lastSyncedAt && (
-                <> · last synced {formatDateTime(lastSyncedAt)} ({daysAgo(lastSyncedAt)})</>
-              )}
-            </p>
-          </div>
-          <form action="/api/logout" method="post">
-            <button
-              type="submit"
-              className="text-sm hover:text-slate-200"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              Log out
-            </button>
-          </form>
-        </div>
-      </header>
-
-      {/* Stats + Tab bar — same card as header */}
-      <div style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border)' }}>
-        <StatsSection stats={mergedStats} />
-
-        {/* Tab bar */}
-        <div className="max-w-7xl mx-auto px-6 flex -mb-px">
-          {tabs.map(({ key, label }) => {
-            const active = tab === key;
-            return (
-              <a
-                key={key}
-                href={`/?tab=${key}`}
-                className="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors"
-                style={{
-                  borderBottomColor: active ? '#3b82f6' : 'transparent',
-                  color: active ? '#3b82f6' : 'var(--text-secondary)',
-                }}
-              >
-                {label}
-              </a>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Tab content */}
-      <main className="max-w-7xl mx-auto px-6 py-5">
-        <div
-          className="rounded-lg overflow-hidden border"
-          style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+    <DashboardShell
+      initialTab={initialTab}
+      stats={stats}
+      lastSyncedAt={lastSyncedAt?.toISOString() ?? null}
+      pilotRows={serializedPilot}
+      priceResult={{ rows: serializedPrice, excluded: serializedPriceExcluded }}
+      liveRows={serializedLive}
+      currentMonthName={currentMonthName}
+      pilotsThisMonthContent={
+        <Suspense
+          fallback={
+            <div className="text-center py-12 text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Loading from PipeDrive…
+            </div>
+          }
         >
-          <div className="p-4">
-            {tab === 'pilot-ending' && <PilotEndingTab rows={serializedPilot} />}
-            {tab === 'pilots-this-month' && (
-              <Suspense fallback={
-                <div className="text-center py-12 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                  Loading from PipeDrive…
-                </div>
-              }>
-                <PilotsEndingThisMonthLoader />
-              </Suspense>
-            )}
-            {tab === 'active-by-price' && <ActiveByPriceTab rows={serializedPrice} excluded={serializedPriceExcluded} />}
-            {tab === 'live-pilot-status' && <LivePilotTab rows={serializedLive} />}
-          </div>
-        </div>
-        <p className="mt-3 text-xs" style={{ color: 'var(--text-muted)' }}>
-          Read-only view of the shared billing-audit database. Data refreshes hourly.
-        </p>
-      </main>
-    </div>
+          <PilotsEndingThisMonthLoader />
+        </Suspense>
+      }
+    />
   );
 }

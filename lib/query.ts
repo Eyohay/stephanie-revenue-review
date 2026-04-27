@@ -50,7 +50,7 @@ const FLOOR9_WHERE = {
 export function nextInvoiceTotal(
   sub: { amount: unknown; lineItems: unknown },
   now: Date
-): { date: Date; amount: number } | null {
+): { date: Date | null; amount: number } | null {
   // sub.amount is the authoritative recurring monthly charge.
   // 0 (or missing) means paid upfront / no recurring schedule.
   const subAmt = Number(sub.amount ?? 0);
@@ -65,28 +65,59 @@ export function nextInvoiceTotal(
   };
 
   const liArr = sub.lineItems as LineItem[] | null;
-  if (!Array.isArray(liArr) || liArr.length === 0) return null;
-
-  // Find the soonest future bill date from qty=1 service items only.
-  // qty>1 items are multi-month upfront blocks; their dates are the lump-sum
-  // payment date, not the recurring billing date.
   const toDay = (raw: string): string => raw.split(/[\sT]/)[0];
   const todayUTC = now.toISOString().slice(0, 10);
 
+  // Find the soonest future bill date using layered strategies:
+  //   Strategy 1: qty=1 non-discount items (original strict rule)
+  //   Strategy 2: any service items (relax qty filter)
+  //   Strategy 3: any line item at all
+  // If no future date is found we still return the amount — ChargeOver may not
+  // have set nextBillDate yet (e.g. billing cycle just completed). Showing the
+  // monthly amount without a date is better than hiding both.
   let soonestDay: string | null = null;
-  for (const item of liArr) {
-    if (item?.type === 'discount') continue;
-    const qty = item?.quantity ?? item?.qty ?? 1;
-    if (qty !== 1) continue;                          // skip multi-month blocks
-    const raw = item?.nextBillDate ?? item?.next_bill_date;
-    if (!raw) continue;
-    const day = toDay(String(raw));
-    if (day > todayUTC && (!soonestDay || day < soonestDay)) soonestDay = day;
-  }
-  if (!soonestDay) return null;
 
-  // Anchor to noon UTC — avoids Eastern-timezone off-by-one (round 5 fix).
-  return { date: new Date(soonestDay + 'T12:00:00.000Z'), amount: subAmt };
+  if (Array.isArray(liArr) && liArr.length > 0) {
+    const isFuture = (d: string) => d > todayUTC;
+
+    // Strategy 1: qty=1 non-discount items
+    for (const item of liArr) {
+      if (item?.type === 'discount') continue;
+      const qty = item?.quantity ?? item?.qty ?? 1;
+      if (qty !== 1) continue;
+      const raw = item?.nextBillDate ?? item?.next_bill_date;
+      if (!raw) continue;
+      const day = toDay(String(raw));
+      if (isFuture(day) && (!soonestDay || day < soonestDay)) soonestDay = day;
+    }
+
+    // Strategy 2: any service items (qty filter relaxed)
+    if (!soonestDay) {
+      for (const item of liArr) {
+        if (item?.type !== 'service') continue;
+        const raw = item?.nextBillDate ?? item?.next_bill_date;
+        if (!raw) continue;
+        const day = toDay(String(raw));
+        if (isFuture(day) && (!soonestDay || day < soonestDay)) soonestDay = day;
+      }
+    }
+
+    // Strategy 3: any line item
+    if (!soonestDay) {
+      for (const item of liArr) {
+        const raw = item?.nextBillDate ?? item?.next_bill_date;
+        if (!raw) continue;
+        const day = toDay(String(raw));
+        if (isFuture(day) && (!soonestDay || day < soonestDay)) soonestDay = day;
+      }
+    }
+  }
+
+  // Always return the amount when sub.amount > 0.
+  // date may be null when ChargeOver hasn't set nextBillDate yet — the UI
+  // shows the amount with "—" for the date column, which is better than "—" for both.
+  const date = soonestDay ? new Date(soonestDay + 'T12:00:00.000Z') : null;
+  return { date, amount: subAmt };
 }
 
 export function isActive(status: string | null): boolean {
@@ -137,6 +168,10 @@ export function isPaidUpfront(financeNotes: string | null): boolean {
  */
 export function isLikelyPaidUpfront(sub: SubRaw | null): boolean {
   if (!sub) return false;
+  // sub.amount = 0 means ChargeOver confirmed no recurring schedule → upfront payment.
+  // This is a stronger signal than qty>1 inspection and catches clients like
+  // trueproductions.com where the financeNotes don't use the "Paid Upfront" keyword.
+  if (Number(sub.amount ?? 0) === 0) return true;
   const liArr = (sub.lineItems as Array<{ type?: string; quantity?: number; qty?: number }> | null) ?? [];
   if (!Array.isArray(liArr)) return false;
   // Any qty>1 service item is a multi-month block — structural signal for upfront payment

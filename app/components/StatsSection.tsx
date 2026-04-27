@@ -1,3 +1,6 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import { type Stats } from '@/lib/query';
 import { formatUSD } from '@/lib/format';
 
@@ -46,7 +49,30 @@ function KpiCard({
   );
 }
 
+type PdCounts = { thisMonth: number; nextMonth: number; monthAfterNext: number };
+
+/**
+ * Renders the KPI header section.
+ *
+ * Initial render uses Neon-computed counts (fast, no PipeDrive wait).
+ * After mount, fetches PipeDrive counts from /api/pilot-kpi-counts and
+ * updates the three pilot-month cards. Falls back to Neon values silently
+ * if the PipeDrive fetch fails.
+ */
 export default function StatsSection({ stats }: { stats: Stats }) {
+  const [pdCounts, setPdCounts] = useState<PdCounts | null>(null);
+
+  useEffect(() => {
+    fetch('/api/pilot-kpi-counts')
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((data: PdCounts) => setPdCounts(data))
+      .catch(() => { /* silent — Neon values remain */ });
+  }, []);
+
+  const thisMonth    = pdCounts?.thisMonth    ?? stats.pilotsEndingThisMonth;
+  const nextMonth    = pdCounts?.nextMonth    ?? stats.pilotsEndingNextMonth;
+  const monthAfter   = pdCounts?.monthAfterNext ?? stats.pilotsEndingMonthAfterNext;
+
   return (
     <div className="max-w-7xl mx-auto px-6 pt-4 pb-3 space-y-3">
       {/* Row 1: Pilot counts — 4 cards */}
@@ -58,16 +84,16 @@ export default function StatsSection({ stats }: { stats: Stats }) {
         />
         <KpiCard
           label={`Pilots ending in ${stats.thisMonthName}`}
-          value={stats.pilotsEndingThisMonth.toString()}
-          accent={stats.pilotsEndingThisMonth > 0 ? 'amber' : undefined}
+          value={thisMonth.toString()}
+          accent={thisMonth > 0 ? 'amber' : undefined}
         />
         <KpiCard
           label={`Pilots ending in ${stats.nextMonthName}`}
-          value={stats.pilotsEndingNextMonth.toString()}
+          value={nextMonth.toString()}
         />
         <KpiCard
           label={`Pilots ending in ${stats.monthAfterNextName}`}
-          value={stats.pilotsEndingMonthAfterNext.toString()}
+          value={monthAfter.toString()}
         />
       </div>
 

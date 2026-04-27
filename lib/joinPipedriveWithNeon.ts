@@ -91,7 +91,7 @@ function buildPaymentData(neon: NeonClient, now: Date): Pick<
     lastPaymentDate:    lastAny?.paidDate ? new Date(lastAny.paidDate).toISOString() : null,
     lastPaymentAmount:  lastAny ? Number(lastAny.amount ?? 0) : null,
     lastPaymentPending,
-    nextPaymentDate:    invoice?.date.toISOString() ?? null,
+    nextPaymentDate:    invoice?.date?.toISOString() ?? null,
     nextPaymentAmount:  invoice?.amount ?? null,
     paidUpfront,
     likelyPaidUpfront,
