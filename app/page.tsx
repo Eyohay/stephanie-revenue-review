@@ -7,6 +7,7 @@ import {
   serializeRow,
   type ActiveByPriceResult,
 } from '@/lib/query';
+import { getPilotKpiCounts } from '@/lib/pipedrive/queries';
 import PilotEndingTab from '@/app/components/PilotEndingTab';
 import ActiveByPriceTab from '@/app/components/ActiveByPriceTab';
 import LivePilotTab from '@/app/components/LivePilotTab';
@@ -28,13 +29,25 @@ export default async function DashboardPage({
   const tab = (searchParams.tab as Tab) || 'pilot-ending';
 
   const emptyPrice = { rows: [], excluded: [] };
-  const [pilotRows, priceResult, liveRows, lastSyncedAt, stats] = await Promise.all([
+  const [pilotRows, priceResult, liveRows, lastSyncedAt, stats, pdKpiCounts] = await Promise.all([
     tab === 'pilot-ending' ? getPilotEndingRows() : Promise.resolve([]),
     tab === 'active-by-price' ? getActiveByPriceRows() : Promise.resolve(emptyPrice),
     tab === 'live-pilot-status' ? getLivePilotRows() : Promise.resolve([]),
     getLastSyncedAt(),
     getStats(),
+    getPilotKpiCounts(new Date()).catch(() => null),
   ]);
+
+  // Override the three pilot-month KPI counts with PipeDrive values (source of truth).
+  // Falls back to Neon values if PD call fails.
+  const mergedStats = pdKpiCounts
+    ? {
+        ...stats,
+        pilotsEndingThisMonth:    pdKpiCounts.thisMonth,
+        pilotsEndingNextMonth:    pdKpiCounts.nextMonth,
+        pilotsEndingMonthAfterNext: pdKpiCounts.monthAfterNext,
+      }
+    : stats;
 
   const serializedPilot = pilotRows.map(serializeRow);
   const serializedPrice = priceResult.rows.map(serializeRow);
@@ -81,7 +94,7 @@ export default async function DashboardPage({
 
       {/* Stats + Tab bar — same card as header */}
       <div style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border)' }}>
-        <StatsSection stats={stats} />
+        <StatsSection stats={mergedStats} />
 
         {/* Tab bar */}
         <div className="max-w-7xl mx-auto px-6 flex -mb-px">

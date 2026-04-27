@@ -81,21 +81,21 @@ export const PD_LABELS: Record<number, { name: string; color: string }> = {
 // ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
-function base(): string {
+export function pdBase(): string {
   const domain = process.env.PIPEDRIVE_COMPANY_DOMAIN;
   if (!domain) throw new Error('PIPEDRIVE_COMPANY_DOMAIN is not set');
   return `https://${domain}.pipedrive.com/api/v1`;
 }
 
-function token(): string {
+export function pdToken(): string {
   const t = process.env.PIPEDRIVE_API_TOKEN;
   if (!t) throw new Error('PIPEDRIVE_API_TOKEN is not set');
   return t;
 }
 
-async function pdFetch(path: string, params: Record<string, string | number> = {}): Promise<unknown> {
-  const url = new URL(`${base()}${path}`);
-  url.searchParams.set('api_token', token());
+export async function pdFetch(path: string, params: Record<string, string | number> = {}): Promise<unknown> {
+  const url = new URL(`${pdBase()}${path}`);
+  url.searchParams.set('api_token', pdToken());
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
 
   let lastErr: unknown;
