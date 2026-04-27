@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { type SerializedClientRow } from '@/lib/query';
 import { formatDate, formatUSD, formatUSDPrecise, daysAgo } from '@/lib/format';
 import { LinkPills } from './LinkPills';
-import { StatusBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge } from './StatusBadge';
+import { StatusBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge, LegacyPricingBadge } from './StatusBadge';
 
 const TH_STYLE: React.CSSProperties = {
   background: 'var(--bg-elevated)',
@@ -250,7 +250,12 @@ export default function ActiveByPriceTab({
                             className={TD}
                             style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}
                           >
-                            {r.nextPaymentAmount !== null ? formatUSD(r.nextPaymentAmount) : '—'}
+                            {r.nextPaymentAmount !== null ? (
+                              <div className="flex items-center justify-end gap-1 flex-wrap">
+                                <span>{formatUSD(r.nextPaymentAmount)}</span>
+                                {r.nextPaymentAmount < 2000 && <LegacyPricingBadge />}
+                              </div>
+                            ) : '—'}
                           </td>
                         </tr>
                       );

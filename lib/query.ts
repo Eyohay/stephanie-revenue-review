@@ -23,41 +23,42 @@ const FLOOR9_WHERE = {
 // ---------------------------------------------------------------------------
 
 /**
- * Computes the next scheduled invoice total for a subscription.
+ * Returns the next scheduled invoice amount and date for a subscription.
  *
- * ChargeOver stores per-line-item bill dates inside the lineItems JSON array.
- * Each element has: nextBillDate (or next_bill_date), unitPrice (or unit_price),
- * quantity (or qty), type ("service" | "discount").
+ * ROUND 7 REWRITE — source-of-truth change:
  *
- * Two bugs fixed here (discovered round 5):
- *   BUG 1 — "Monthly Credit" and similar discount line items (type="discount") were
- *   being summed as positive charges, inflating totals by the credit amount. The
- *   database contains only two type values: "service" and "discount". Only "service"
- *   items are real charges; discounts must be excluded.
+ *   AMOUNT  → Subscription.amount (ChargeOver's computed recurring field).
+ *             This is authoritative: ChargeOver excludes one-off service items,
+ *             multi-month upfront blocks, and credits from this field.
+ *             sub.amount = 0 means the subscription is paid upfront with no
+ *             recurring schedule → return null.
  *
- *   BUG 2 — ChargeOver stores dates as "YYYY-MM-DD HH:MM:SS" without a TZ suffix.
- *   JavaScript parses these as local time; on Vercel (UTC) the ISO serialization is
- *   "YYYY-MM-DDT00:00:01.000Z", which renders as the previous day in Eastern-timezone
- *   browsers. Fix: extract only the YYYY-MM-DD portion and anchor to noon UTC, making
- *   the displayed date correct in any timezone.
+ *   DATE    → Soonest future nextBillDate across qty=1 service line items only.
+ *             qty>1 items are multi-month upfront blocks whose dates are not
+ *             recurring billing dates.
  *
- * Strategy:
- *   1. Discard discount items (type === "discount").
- *   2. Find the soonest FUTURE date across remaining items (YYYY-MM-DD string compare).
- *   3. Sum unitPrice × quantity for all service items sharing that date.
+ * Previous line-item-sum approach had two bugs (round 7 diagnostic):
+ *   BUG A — Summed qty>1 multi-month blocks on paid-upfront subs → $10K–$14K totals.
+ *   BUG B — Included stray one-off service items (e.g. atlphantom's $1,000 catch-up,
+ *            sherwoodforestinc's $350 "Linkedin Profile Overhaul") that ChargeOver
+ *            correctly excludes from sub.amount.
  *
- * Returns null when no service items have a future date — subscription paused,
- * expired, or paid upfront.
+ * Round 5 date normalization is preserved: ChargeOver stores dates as
+ * "YYYY-MM-DD HH:MM:SS" without a TZ suffix. Anchoring to noon UTC prevents
+ * the Eastern-timezone off-by-one that caused May 11 to display as May 10.
  */
 function nextInvoiceTotal(
-  sub: { lineItems: unknown },
+  sub: { amount: unknown; lineItems: unknown },
   now: Date
 ): { date: Date; amount: number } | null {
+  // sub.amount is the authoritative recurring monthly charge.
+  // 0 (or missing) means paid upfront / no recurring schedule.
+  const subAmt = Number(sub.amount ?? 0);
+  if (subAmt <= 0) return null;
+
   type LineItem = {
     nextBillDate?: string;
     next_bill_date?: string;
-    unitPrice?: number;
-    unit_price?: number;
     quantity?: number;
     qty?: number;
     type?: string;
@@ -66,21 +67,17 @@ function nextInvoiceTotal(
   const liArr = sub.lineItems as LineItem[] | null;
   if (!Array.isArray(liArr) || liArr.length === 0) return null;
 
-  // Exclude discount/credit items — type="discount" means a credit applied to the
-  // invoice (e.g. "Monthly Credit"). ChargeOver stores these with a positive unitPrice
-  // but they reduce the invoice; sub.amount already reflects the correct total without
-  // them. The only non-discount type observed in production data is "service".
-  const serviceItems = liArr.filter((item) => item?.type !== 'discount');
-  if (serviceItems.length === 0) return null;
-
-  // Normalize date strings to YYYY-MM-DD for comparison (avoids TZ edge-cases).
-  // ChargeOver format: "2026-05-11 00:00:01" — split on space or T to get date part.
+  // Find the soonest future bill date from qty=1 service items only.
+  // qty>1 items are multi-month upfront blocks; their dates are the lump-sum
+  // payment date, not the recurring billing date.
   const toDay = (raw: string): string => raw.split(/[\sT]/)[0];
   const todayUTC = now.toISOString().slice(0, 10);
 
-  // Step 1: find the soonest future bill date across service items
   let soonestDay: string | null = null;
-  for (const item of serviceItems) {
+  for (const item of liArr) {
+    if (item?.type === 'discount') continue;
+    const qty = item?.quantity ?? item?.qty ?? 1;
+    if (qty !== 1) continue;                          // skip multi-month blocks
     const raw = item?.nextBillDate ?? item?.next_bill_date;
     if (!raw) continue;
     const day = toDay(String(raw));
@@ -88,19 +85,8 @@ function nextInvoiceTotal(
   }
   if (!soonestDay) return null;
 
-  // Step 2: sum service items on that date
-  let total = 0;
-  for (const item of serviceItems) {
-    const raw = item?.nextBillDate ?? item?.next_bill_date;
-    if (!raw || toDay(String(raw)) !== soonestDay) continue;
-    const price = item.unitPrice ?? item.unit_price ?? 0;
-    const qty = item.quantity ?? item.qty ?? 1;
-    total += price * qty;
-  }
-
-  // Anchor date to noon UTC so formatDate() renders the correct calendar date in
-  // any client timezone (avoids Eastern-timezone off-by-one on UTC-midnight dates).
-  return total > 0 ? { date: new Date(soonestDay + 'T12:00:00.000Z'), amount: total } : null;
+  // Anchor to noon UTC — avoids Eastern-timezone off-by-one (round 5 fix).
+  return { date: new Date(soonestDay + 'T12:00:00.000Z'), amount: subAmt };
 }
 
 function isActive(status: string | null): boolean {
@@ -133,30 +119,28 @@ function isPaidUpfront(financeNotes: string | null): boolean {
 }
 
 /**
- * Ratio-based backstop for paid-upfront detection.
+ * Structural backstop for paid-upfront detection.
  *
- * Returns true when a client has a recent ok-successful payment AND the ratio
- * of next-invoice-total to last-paid-amount is > 3x or < 0.33x. This catches
- * clients whose financeNotes don't mention "paid upfront" but whose payment
- * pattern strongly suggests an upfront/multi-month billing structure.
+ * The primary paid-upfront signal after round 7 is sub.amount === 0 → nextInvoiceTotal
+ * returns null → client is naturally excluded from Tab 2 and shown with the "Paid
+ * upfront" pill on Tabs 1 and 3.
  *
- * Known false positives (round 6): monthly clients on a promotional first-month
- * credit ("Gold deal (4 months) | $1,000 credit first month") also trigger this
- * threshold because their first invoice is small (~$200) and subsequent invoices
- * are the normal monthly rate (~$2,575). Review the amber-badged clients in the
- * Tab 2 excluded section to confirm.
+ * This function is a safety net for the rare edge case where a subscription has
+ * multi-month qty>1 service line items AND still has sub.amount > 0 (not observed in
+ * production data as of round 7, but structurally possible).
+ *
+ * The round 6 ratio heuristic (3x threshold) is removed here because after fix 1 the
+ * ratio compares sub.amount to last-payment, and monthly clients on a promotional
+ * first-month credit legitimately have a high ratio — they are NOT paid upfront.
  *
  * Only called when isPaidUpfront() returned false.
  */
-function isLikelyPaidUpfront(
-  lastPaidAmt: number | null,
-  nextAmt: number | null,
-  hasRecentOkPayment: boolean
-): boolean {
-  if (!hasRecentOkPayment || lastPaidAmt === null || !nextAmt) return false;
-  if (lastPaidAmt === 0) return false;
-  const ratio = nextAmt / lastPaidAmt;
-  return ratio > 3.0 || ratio < 0.33;
+function isLikelyPaidUpfront(sub: SubRaw | null): boolean {
+  if (!sub) return false;
+  const liArr = (sub.lineItems as Array<{ type?: string; quantity?: number; qty?: number }> | null) ?? [];
+  if (!Array.isArray(liArr)) return false;
+  // Any qty>1 service item is a multi-month block — structural signal for upfront payment
+  return liArr.some((li) => li?.type === 'service' && (li?.quantity ?? li?.qty ?? 1) > 1);
 }
 
 /** Tier from financeNotes only — no retainer-amount matching */
@@ -275,12 +259,10 @@ function buildRow(c: ClientRaw): ClientRow {
 
   const activeSubs = c.subscriptions.filter((s) => isActive(s.status));
 
-  // Largest active subscription = highest nextInvoiceTotal (fall back to amount field)
-  const sortedSubs = [...activeSubs].sort((a, b) => {
-    const aAmt = nextInvoiceTotal(a, now)?.amount ?? Number(a.amount ?? 0);
-    const bAmt = nextInvoiceTotal(b, now)?.amount ?? Number(b.amount ?? 0);
-    return bAmt - aAmt;
-  });
+  // Largest active subscription = highest sub.amount (the authoritative recurring field)
+  const sortedSubs = [...activeSubs].sort(
+    (a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0)
+  );
   const largestSub = sortedSubs[0] ?? null;
 
   // Payments
@@ -311,17 +293,10 @@ function buildRow(c: ClientRaw): ClientRow {
 
   const paidUpfront = isPaidUpfront(c.financeNotes);
 
-  // Ratio heuristic: only relevant when substring check didn't trigger
-  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
-  const recentOkPayments = c.payments.filter(
-    (p) =>
-      PAID_STATUSES.includes((p.status ?? '').toLowerCase()) &&
-      p.paidDate !== null &&
-      new Date(p.paidDate) >= sixtyDaysAgo
-  );
-  const lastOkAmt = recentOkPayments[0] ? Number(recentOkPayments[0].amount) : null;
-  const likelyPaidUpfront =
-    !paidUpfront && isLikelyPaidUpfront(lastOkAmt, nextPaymentAmount, recentOkPayments.length > 0);
+  // Structural backstop: any qty>1 service item is a multi-month upfront block.
+  // The primary signal is sub.amount === 0 → nextPaymentAmount === null → naturally
+  // excluded. This only fires for the edge case of qty>1 with sub.amount > 0.
+  const likelyPaidUpfront = !paidUpfront && isLikelyPaidUpfront(largestSub);
 
   const tier = deriveTier(c.financeNotes);
 
@@ -548,13 +523,11 @@ export async function getStats(): Promise<Stats> {
       pilotEnd && pilotEnd >= thisMonthStart && pilotEnd <= thisMonthEnd
     );
 
-    // Next invoice from largest active subscription
+    // Next invoice from largest active subscription (sort by sub.amount)
     const activeSubs = c.subscriptions.filter((s) => isActive(s.status));
-    const largestSub = [...activeSubs].sort((a, b) => {
-      const aAmt = nextInvoiceTotal(a, now)?.amount ?? Number(a.amount ?? 0);
-      const bAmt = nextInvoiceTotal(b, now)?.amount ?? Number(b.amount ?? 0);
-      return bAmt - aAmt;
-    })[0] ?? null;
+    const largestSub = [...activeSubs].sort(
+      (a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0)
+    )[0] ?? null;
     const invoice = largestSub ? nextInvoiceTotal(largestSub, now) : null;
 
     // Post-pilot MRR: live, past pilot, not paid-upfront, has a future invoice
