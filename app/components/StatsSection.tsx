@@ -54,7 +54,7 @@ export default function StatsSection({ stats }: { stats: Stats }) {
         <KpiCard
           label="Current clients"
           value={stats.totalClients.toString()}
-          sub="live + pre-launch"
+          sub="live"
         />
         <KpiCard
           label={`Pilots ending in ${stats.thisMonthName}`}

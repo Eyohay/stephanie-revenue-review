@@ -359,7 +359,7 @@ export async function getPilotEndingRows(): Promise<ClientRow[]> {
 
   const clients = (await prisma.client.findMany({
     where: {
-      accountStatus: { in: ['Live', 'Pre-Launch'] },
+      accountStatus: 'Live',
       pilotRolloverEndDate: { gte: todayStart, lte: tenDaysEnd },
       ...FLOOR9_WHERE,
     },
@@ -381,7 +381,7 @@ export type ActiveByPriceResult = {
 export async function getActiveByPriceRows(): Promise<ActiveByPriceResult> {
   const clients = (await prisma.client.findMany({
     where: {
-      accountStatus: { in: ['Live', 'Pre-Launch'] },
+      accountStatus: 'Live',
       ...FLOOR9_WHERE,
     },
     select: CLIENT_SELECT,
@@ -457,7 +457,7 @@ export async function getStats(): Promise<Stats> {
 
   const rawClients = (await prisma.client.findMany({
     where: {
-      accountStatus: { in: ['Live', 'Pre-Launch'] },
+      accountStatus: 'Live',
       ...FLOOR9_WHERE,
     },
     select: {
@@ -510,7 +510,11 @@ export async function getStats(): Promise<Stats> {
 
     if (c.pilotRolloverEndDate) {
       const pd = new Date(c.pilotRolloverEndDate);
+      // "Pilots ending in next 10 days" — future-only window (used by Tab 1)
       if (pd >= todayStart && pd <= tenDaysEnd) pilotsEndingNext10Days++;
+      // "Pilots ending in [Month]" KPI cards — full calendar-month boundaries,
+      // regardless of whether the date is past or future. A pilot that ended
+      // April 5 (already past) still counts toward "Pilots ending in April."
       if (pd >= thisMonthStart && pd <= thisMonthEnd) pilotsEndingThisMonth++;
       else if (pd >= nextMonthStart && pd <= nextMonthEnd) pilotsEndingNextMonth++;
       else if (pd >= m2Start && pd <= m2End) pilotsEndingMonthAfterNext++;

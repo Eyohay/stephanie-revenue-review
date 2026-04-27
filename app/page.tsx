@@ -55,7 +55,7 @@ export default async function DashboardPage({
               Stephanie Revenue Review
             </h1>
             <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Live &amp; pre-launch clients — revenue &amp; pilot health
+              Live clients — revenue &amp; pilot health
               {lastSyncedAt && (
                 <> · last synced {formatDateTime(lastSyncedAt)} ({daysAgo(lastSyncedAt)})</>
               )}
