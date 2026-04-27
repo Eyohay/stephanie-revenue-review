@@ -97,7 +97,7 @@ export default function PilotsEndingThisMonthTab({
           </thead>
           <tbody>
             {rows.map((r) => {
-              const isUpfront = r.paidUpfront || r.likelyPaidUpfront || r.nextPaymentAmount === null && r.hasNeonMatch;
+              const isUpfront = r.paidUpfront || r.likelyPaidUpfront || (r.monthlyAmount === null && r.hasNeonMatch);
               const mismatch = !isUpfront && hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
 
               return (
@@ -176,7 +176,7 @@ export default function PilotsEndingThisMonthTab({
                   <td className={TD}>
                     {!r.hasNeonMatch ? (
                       <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>—</span>
-                    ) : r.nextPaymentDate && !isUpfront ? (
+                    ) : r.nextPaymentDate ? (
                       <div>
                         <div className="flex items-center gap-1">
                           <span style={{ color: 'var(--foreground)' }}>
@@ -208,12 +208,12 @@ export default function PilotsEndingThisMonthTab({
                       <PaidUpfrontBadge />
                     ) : r.likelyPaidUpfront ? (
                       <LikelyPaidUpfrontBadge />
-                    ) : r.nextPaymentAmount === null ? (
+                    ) : r.monthlyAmount === null ? (
                       <PaidUpfrontBadge />
                     ) : (
                       <div className="flex items-center justify-end gap-1 flex-wrap">
-                        <span>{formatUSD(r.nextPaymentAmount)}</span>
-                        {r.nextPaymentAmount < 2000 && <LegacyPricingBadge />}
+                        <span>{formatUSD(r.monthlyAmount)}</span>
+                        {r.monthlyAmount < 2000 && <LegacyPricingBadge />}
                       </div>
                     )}
                   </td>

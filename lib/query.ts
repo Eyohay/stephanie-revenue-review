@@ -178,6 +178,65 @@ export function isLikelyPaidUpfront(sub: SubRaw | null): boolean {
   return liArr.some((li) => li?.type === 'service' && (li?.quantity ?? li?.qty ?? 1) > 1);
 }
 
+/**
+ * Compute the next scheduled invoice across ALL active subscriptions.
+ *
+ * Ported from active-clients-billing's approach — iterates every active sub
+ * (not just the largest) and picks the one with the earliest nextBillDate in
+ * lineItems JSON.  Amount = sum of (unitPrice × quantity) for all line items
+ * on that sub (may be a multi-month lump rather than the monthly rate).
+ *
+ * No sub.amount gate — paid-upfront subs with sub.amount = 0 still have
+ * nextBillDate set on the LINE ITEMS of a companion subscription that
+ * represents the upcoming recurring charge.
+ */
+export function nextScheduledForAllSubs(
+  activeSubs: SubRaw[],
+  now: Date,
+): { date: Date; amount: number } | null {
+  type Li = {
+    nextBillDate?: string;
+    next_bill_date?: string;
+    unitPrice?: number;
+    quantity?: number;
+    qty?: number;
+  };
+
+  let bestDate: Date | null = null;
+  let bestAmount = 0;
+
+  for (const sub of activeSubs) {
+    const liArr = sub.lineItems as Li[] | null;
+    if (!Array.isArray(liArr) || liArr.length === 0) continue;
+
+    let candidateDate: Date | null = null;
+    for (const item of liArr) {
+      const raw = item?.nextBillDate ?? item?.next_bill_date;
+      if (!raw) continue;
+      const d = new Date(raw);
+      if (!candidateDate || d < candidateDate) candidateDate = d;
+    }
+    if (!candidateDate) continue;
+
+    if (!bestDate || candidateDate < bestDate) {
+      bestDate = candidateDate;
+      // Sum all line items (unitPrice × qty) — matches active-clients-billing's subAmount()
+      const sum = liArr.reduce(
+        (s, li) =>
+          s + Number(li?.unitPrice ?? 0) * Number(li?.quantity ?? li?.qty ?? 1),
+        0,
+      );
+      bestAmount = sum > 0 ? sum : Number(sub.amount ?? 0);
+    }
+  }
+
+  if (!bestDate) return null;
+
+  // Anchor to noon UTC — avoids Eastern-timezone off-by-one (round 5 fix)
+  const dateStr = bestDate.toISOString().slice(0, 10);
+  return { date: new Date(dateStr + 'T12:00:00.000Z'), amount: bestAmount };
+}
+
 /** Tier from financeNotes only — no retainer-amount matching */
 function deriveTier(financeNotes: string | null): 'Platinum' | 'Gold' | null {
   const fn = (financeNotes ?? '').toLowerCase();
@@ -261,8 +320,12 @@ export type ClientRow = {
   lastPaymentDate: Date | null;
   lastPaymentAmount: number | null;
   lastPaymentPending: boolean;
-  // Next scheduled invoice — this is also the "Monthly amount" shown in all UI columns.
-  // Null when no future nextBillDate exists (paused, expired, or paid-upfront subscription).
+  // Monthly recurring amount from the largest active subscription (sub.amount field).
+  // Null when sub.amount = 0 (ChargeOver-confirmed paid-upfront: no recurring schedule).
+  monthlyAmount: number | null;
+  // Next scheduled invoice from ANY active subscription (ported from active-clients-billing).
+  // Iterates all active subs, picks earliest nextBillDate, uses lineItemSum for amount.
+  // Non-null even when monthlyAmount is null (upfront clients with a companion recurring sub).
   nextPaymentDate: Date | null;
   nextPaymentAmount: number | null;
   lifetimeTotalPaid: number;
@@ -317,10 +380,14 @@ function buildRow(c: ClientRaw): ClientRow {
     ? !PAID_STATUSES.includes((lastAny.status ?? '').toLowerCase())
     : false;
 
-  // Next scheduled invoice from largest active sub
-  const invoice = largestSub ? nextInvoiceTotal(largestSub, now) : null;
-  const nextPaymentDate = invoice?.date ?? null;
-  const nextPaymentAmount = invoice?.amount ?? null;
+  // Monthly amount: sub.amount from largest active subscription (null when paid-upfront)
+  const monthlyAmount = Number(largestSub?.amount ?? 0) > 0 ? Number(largestSub!.amount) : null;
+
+  // Next scheduled invoice: search ALL active subs (ported from active-clients-billing).
+  // This finds the companion recurring sub's nextBillDate even when largestSub.amount = 0.
+  const scheduled = nextScheduledForAllSubs(activeSubs, now);
+  const nextPaymentDate = scheduled?.date ?? null;
+  const nextPaymentAmount = scheduled?.amount ?? null;
 
   const pilotEnd = c.pilotRolloverEndDate ? new Date(c.pilotRolloverEndDate) : null;
   const isInPilot = !!(pilotEnd && pilotEnd > now);
@@ -351,6 +418,7 @@ function buildRow(c: ClientRaw): ClientRow {
     lastPaymentDate: lastAny?.paidDate ?? null,
     lastPaymentAmount: lastAny ? Number(lastAny.amount ?? 0) : null,
     lastPaymentPending,
+    monthlyAmount,
     nextPaymentDate,
     nextPaymentAmount,
     lifetimeTotalPaid,
@@ -427,8 +495,8 @@ export async function getActiveByPriceRows(): Promise<ActiveByPriceResult> {
   const all = dedupeGhosts(clients).map(buildRow);
 
   const rows = all
-    .filter((r) => !r.paidUpfront && !r.likelyPaidUpfront && r.nextPaymentAmount !== null && r.nextPaymentAmount > 0)
-    .sort((a, b) => (b.nextPaymentAmount ?? 0) - (a.nextPaymentAmount ?? 0));
+    .filter((r) => !r.paidUpfront && !r.likelyPaidUpfront && r.monthlyAmount !== null && r.monthlyAmount > 0)
+    .sort((a, b) => (b.monthlyAmount ?? 0) - (a.monthlyAmount ?? 0));
 
   const excluded = all
     .filter((r) => r.paidUpfront || r.likelyPaidUpfront)

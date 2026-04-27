@@ -49,8 +49,8 @@ export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }
         </thead>
         <tbody>
           {rows.map((r) => {
-            const isUpfront = r.paidUpfront || r.likelyPaidUpfront;
-            const mismatch = !isUpfront && hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
+            // mismatch: only flag recurring clients where last vs next differ meaningfully
+            const mismatch = r.monthlyAmount !== null && hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
             return (
               <tr
                 key={r.id}
@@ -88,23 +88,20 @@ export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }
                   <TierBadge tier={r.tier} />
                 </td>
                 <td className={TD} style={{ textAlign: 'right' }}>
-                  {r.nextPaymentAmount !== null ? (
+                  {r.monthlyAmount !== null ? (
                     <div className="flex items-center justify-end gap-1 flex-wrap">
                       <span style={{ fontWeight: 500, color: 'var(--foreground)' }}>
-                        {formatUSD(r.nextPaymentAmount)}
+                        {formatUSD(r.monthlyAmount)}
                         <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>/mo</span>
                       </span>
-                      {r.paidUpfront && <PaidUpfrontBadge />}
-                      {!r.paidUpfront && r.nextPaymentAmount < 2000 && <LegacyPricingBadge />}
+                      {r.monthlyAmount < 2000 && <LegacyPricingBadge />}
                     </div>
                   ) : (
                     <span style={{ color: 'var(--text-muted)' }}>—</span>
                   )}
                 </td>
                 <td className={TD}>
-                  {isUpfront ? (
-                    <span style={{ color: 'var(--text-muted)' }}>—</span>
-                  ) : r.lastPaymentDate ? (
+                  {r.lastPaymentDate ? (
                     <div>
                       <div className="flex items-center gap-1">
                         <span style={{ color: 'var(--foreground)' }}>
@@ -121,9 +118,7 @@ export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }
                   )}
                 </td>
                 <td className={TD}>
-                  {isUpfront ? (
-                    <span style={{ color: 'var(--text-muted)' }}>—</span>
-                  ) : r.nextPaymentDate ? (
+                  {r.nextPaymentDate ? (
                     <div>
                       <div className="flex items-center gap-1">
                         <span style={{ color: 'var(--foreground)' }}>

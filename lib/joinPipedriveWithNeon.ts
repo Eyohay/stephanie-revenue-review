@@ -20,7 +20,7 @@ import {
   isActive,
   isPaidUpfront,
   isLikelyPaidUpfront,
-  nextInvoiceTotal,
+  nextScheduledForAllSubs,
   type SubRaw,
   type PayRaw,
 } from './query';
@@ -46,6 +46,8 @@ export type JoinedPilotRow = {
   lastPaymentDate: string | null;       // ISO string
   lastPaymentAmount: number | null;
   lastPaymentPending: boolean;
+  // Monthly recurring amount (sub.amount from largest active sub — null if paid-upfront)
+  monthlyAmount: number | null;
   nextPaymentDate: string | null;       // ISO string
   nextPaymentAmount: number | null;
 
@@ -67,14 +69,19 @@ type NeonClient = {
 function buildPaymentData(neon: NeonClient, now: Date): Pick<
   JoinedPilotRow,
   'lastPaymentDate' | 'lastPaymentAmount' | 'lastPaymentPending' |
-  'nextPaymentDate' | 'nextPaymentAmount' | 'paidUpfront' | 'likelyPaidUpfront'
+  'monthlyAmount' | 'nextPaymentDate' | 'nextPaymentAmount' |
+  'paidUpfront' | 'likelyPaidUpfront'
 > {
   const activeSubs = neon.subscriptions.filter(s => isActive(s.status));
   const largestSub = [...activeSubs].sort(
     (a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0)
   )[0] ?? null;
 
-  const invoice = largestSub ? nextInvoiceTotal(largestSub, now) : null;
+  // Monthly amount: sub.amount from largest active sub (null when paid-upfront)
+  const monthlyAmount = Number(largestSub?.amount ?? 0) > 0 ? Number(largestSub!.amount) : null;
+
+  // Next scheduled invoice: search ALL active subs (finds companion sub's nextBillDate)
+  const scheduled = nextScheduledForAllSubs(activeSubs, now);
 
   const nonFailed = neon.payments.filter(
     p => !FAILED_STATUSES.includes((p.status ?? '').toLowerCase())
@@ -91,8 +98,9 @@ function buildPaymentData(neon: NeonClient, now: Date): Pick<
     lastPaymentDate:    lastAny?.paidDate ? new Date(lastAny.paidDate).toISOString() : null,
     lastPaymentAmount:  lastAny ? Number(lastAny.amount ?? 0) : null,
     lastPaymentPending,
-    nextPaymentDate:    invoice?.date?.toISOString() ?? null,
-    nextPaymentAmount:  invoice?.amount ?? null,
+    monthlyAmount,
+    nextPaymentDate:    scheduled?.date?.toISOString() ?? null,
+    nextPaymentAmount:  scheduled?.amount ?? null,
     paidUpfront,
     likelyPaidUpfront,
   };
@@ -136,6 +144,7 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotRow[]> {
       ? buildPaymentData(neon, now)
       : {
           lastPaymentDate: null, lastPaymentAmount: null, lastPaymentPending: false,
+          monthlyAmount: null,
           nextPaymentDate: null, nextPaymentAmount: null,
           paidUpfront: false, likelyPaidUpfront: false,
         };

@@ -144,8 +144,8 @@ function useSortedRows(rows: SerializedClientRow[], defaultKey: SortKey) {
         vb = b.pilotRolloverEndDate ? new Date(b.pilotRolloverEndDate).getTime() : Infinity;
         break;
       case 'monthlyAmount':
-        va = a.nextPaymentAmount ?? 0;
-        vb = b.nextPaymentAmount ?? 0;
+        va = a.monthlyAmount ?? 0;
+        vb = b.monthlyAmount ?? 0;
         break;
       case 'nextPaymentDate':
         va = a.nextPaymentDate ? new Date(a.nextPaymentDate).getTime() : Infinity;
@@ -234,7 +234,7 @@ function InPilotTable({ rows }: { rows: SerializedClientRow[] }) {
         </thead>
         <tbody>
           {sorted.map((r) => {
-            const isUpfront = r.paidUpfront || r.likelyPaidUpfront || r.nextPaymentAmount === null;
+            const isUpfront = r.paidUpfront || r.likelyPaidUpfront || r.monthlyAmount === null;
             const mismatch = !isUpfront && hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
             return (
               <tr
@@ -263,12 +263,12 @@ function InPilotTable({ rows }: { rows: SerializedClientRow[] }) {
                     ? <PaidUpfrontBadge />
                     : r.likelyPaidUpfront
                     ? <LikelyPaidUpfrontBadge />
-                    : r.nextPaymentAmount === null
+                    : r.monthlyAmount === null
                     ? <PaidUpfrontBadge />
                     : (
                       <div className="flex items-center justify-end gap-1 flex-wrap">
-                        <span>{formatUSD(r.nextPaymentAmount)}</span>
-                        {r.nextPaymentAmount < 2000 && <LegacyPricingBadge />}
+                        <span>{formatUSD(r.monthlyAmount)}</span>
+                        {r.monthlyAmount < 2000 && <LegacyPricingBadge />}
                       </div>
                     )}
                 </td>
@@ -311,7 +311,7 @@ function PostPilotTable({ rows }: { rows: SerializedClientRow[] }) {
         <tbody>
           {sorted.map((r) => {
             const mo = r.pilotRolloverEndDate ? monthsApart(r.pilotRolloverEndDate, now) : null;
-            const isUpfront = r.paidUpfront || r.likelyPaidUpfront || r.nextPaymentAmount === null;
+            const isUpfront = r.paidUpfront || r.likelyPaidUpfront || r.monthlyAmount === null;
             const mismatch = !isUpfront && hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
             return (
               <tr
@@ -341,12 +341,12 @@ function PostPilotTable({ rows }: { rows: SerializedClientRow[] }) {
                     ? <PaidUpfrontBadge />
                     : r.likelyPaidUpfront
                     ? <LikelyPaidUpfrontBadge />
-                    : r.nextPaymentAmount === null
+                    : r.monthlyAmount === null
                     ? <PaidUpfrontBadge />
                     : (
                       <div className="flex items-center justify-end gap-1 flex-wrap">
-                        <span>{formatUSD(r.nextPaymentAmount)}</span>
-                        {r.nextPaymentAmount < 2000 && <LegacyPricingBadge />}
+                        <span>{formatUSD(r.monthlyAmount)}</span>
+                        {r.monthlyAmount < 2000 && <LegacyPricingBadge />}
                       </div>
                     )}
                 </td>
