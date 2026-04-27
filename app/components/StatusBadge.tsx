@@ -59,3 +59,20 @@ export function PaidUpfrontBadge() {
     </span>
   );
 }
+
+/** Amber dotted-border variant — paid-upfront inferred from payment ratio, not confirmed in PipeDrive */
+export function LikelyPaidUpfrontBadge() {
+  return (
+    <span
+      className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ml-1"
+      style={{
+        background: 'transparent',
+        color: '#fbbf24',
+        border: '1px dashed #fbbf24',
+      }}
+      title="Inferred from payment ratio — verify in PipeDrive"
+    >
+      Paid upfront?
+    </span>
+  );
+}

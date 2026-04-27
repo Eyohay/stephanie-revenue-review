@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { type SerializedClientRow } from '@/lib/query';
 import { formatDate, formatUSD, formatUSDPrecise, daysAgo } from '@/lib/format';
 import { LinkPills } from './LinkPills';
-import { StatusBadge, PendingBadge } from './StatusBadge';
+import { StatusBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge } from './StatusBadge';
 
 const TH_STYLE: React.CSSProperties = {
   background: 'var(--bg-elevated)',
@@ -69,9 +69,16 @@ function SegmentedControl({
   );
 }
 
-export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[] }) {
+export default function ActiveByPriceTab({
+  rows,
+  excluded,
+}: {
+  rows: SerializedClientRow[];
+  excluded: SerializedClientRow[];
+}) {
   const [pilotFilter, setPilotFilter] = useState<PilotFilter>('all');
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const [showExcluded, setShowExcluded] = useState(false);
 
   const filtered = rows.filter((r) => {
     if (pilotFilter === 'in-pilot') return r.isInPilot;
@@ -255,6 +262,34 @@ export default function ActiveByPriceTab({ rows }: { rows: SerializedClientRow[]
           </div>
         );
       })}
+
+      {excluded.length > 0 && (
+        <div className="mt-4 p-3 rounded text-xs" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+          <div className="flex items-center gap-2">
+            <span style={{ color: 'var(--text-muted)' }}>
+              {excluded.length} client{excluded.length !== 1 ? 's' : ''} excluded as paid-upfront
+            </span>
+            <button
+              onClick={() => setShowExcluded((v) => !v)}
+              className="underline"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              {showExcluded ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {showExcluded && (
+            <div className="mt-2 space-y-1.5">
+              {excluded.map((r) => (
+                <div key={r.id} className="flex items-center gap-2 flex-wrap">
+                  <span style={{ color: 'var(--foreground)', fontWeight: 500 }}>{r.organizationName}</span>
+                  {r.paidUpfront ? <PaidUpfrontBadge /> : <LikelyPaidUpfrontBadge />}
+                  <LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

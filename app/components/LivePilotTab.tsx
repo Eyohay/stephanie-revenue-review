@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { type SerializedClientRow } from '@/lib/query';
 import { formatDate, formatUSD, formatUSDPrecise, relativeDays, daysAgo, monthsApart } from '@/lib/format';
 import { LinkPills } from './LinkPills';
-import { TierBadge, PendingBadge } from './StatusBadge';
+import { TierBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge } from './StatusBadge';
 
 const TD = 'px-3 py-2.5 align-top';
 
@@ -234,7 +234,8 @@ function InPilotTable({ rows }: { rows: SerializedClientRow[] }) {
         </thead>
         <tbody>
           {sorted.map((r) => {
-            const mismatch = hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
+            const isUpfront = r.paidUpfront || r.likelyPaidUpfront;
+            const mismatch = !isUpfront && hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
             return (
               <tr
                 key={r.id}
@@ -258,7 +259,9 @@ function InPilotTable({ rows }: { rows: SerializedClientRow[] }) {
                 <td className={TD}><LastPaymentCell r={r} /></td>
                 <td className={TD}><NextPaymentCell r={r} mismatch={mismatch} /></td>
                 <td className={TD} style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}>
-                  {r.nextPaymentAmount !== null ? formatUSD(r.nextPaymentAmount) : '—'}
+                  {isUpfront
+                    ? (r.paidUpfront ? <PaidUpfrontBadge /> : <LikelyPaidUpfrontBadge />)
+                    : r.nextPaymentAmount !== null ? formatUSD(r.nextPaymentAmount) : '—'}
                 </td>
               </tr>
             );
@@ -299,7 +302,8 @@ function PostPilotTable({ rows }: { rows: SerializedClientRow[] }) {
         <tbody>
           {sorted.map((r) => {
             const mo = r.pilotRolloverEndDate ? monthsApart(r.pilotRolloverEndDate, now) : null;
-            const mismatch = hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
+            const isUpfront = r.paidUpfront || r.likelyPaidUpfront;
+            const mismatch = !isUpfront && hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
             return (
               <tr
                 key={r.id}
@@ -324,7 +328,9 @@ function PostPilotTable({ rows }: { rows: SerializedClientRow[] }) {
                 <td className={TD}><LastPaymentCell r={r} /></td>
                 <td className={TD}><NextPaymentCell r={r} mismatch={mismatch} /></td>
                 <td className={TD} style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}>
-                  {r.nextPaymentAmount !== null ? formatUSD(r.nextPaymentAmount) : '—'}
+                  {isUpfront
+                    ? (r.paidUpfront ? <PaidUpfrontBadge /> : <LikelyPaidUpfrontBadge />)
+                    : r.nextPaymentAmount !== null ? formatUSD(r.nextPaymentAmount) : '—'}
                 </td>
               </tr>
             );

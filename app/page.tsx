@@ -5,6 +5,7 @@ import {
   getLastSyncedAt,
   getStats,
   serializeRow,
+  type ActiveByPriceResult,
 } from '@/lib/query';
 import PilotEndingTab from '@/app/components/PilotEndingTab';
 import ActiveByPriceTab from '@/app/components/ActiveByPriceTab';
@@ -24,16 +25,18 @@ export default async function DashboardPage({
 }) {
   const tab = (searchParams.tab as Tab) || 'pilot-ending';
 
-  const [pilotRows, priceRows, liveRows, lastSyncedAt, stats] = await Promise.all([
+  const emptyPrice = { rows: [], excluded: [] };
+  const [pilotRows, priceResult, liveRows, lastSyncedAt, stats] = await Promise.all([
     tab === 'pilot-ending' ? getPilotEndingRows() : Promise.resolve([]),
-    tab === 'active-by-price' ? getActiveByPriceRows() : Promise.resolve([]),
+    tab === 'active-by-price' ? getActiveByPriceRows() : Promise.resolve(emptyPrice),
     tab === 'live-pilot-status' ? getLivePilotRows() : Promise.resolve([]),
     getLastSyncedAt(),
     getStats(),
   ]);
 
   const serializedPilot = pilotRows.map(serializeRow);
-  const serializedPrice = priceRows.map(serializeRow);
+  const serializedPrice = priceResult.rows.map(serializeRow);
+  const serializedPriceExcluded = priceResult.excluded.map(serializeRow);
   const serializedLive = liveRows.map(serializeRow);
 
   const tabs: { key: Tab; label: string }[] = [
@@ -103,7 +106,7 @@ export default async function DashboardPage({
         >
           <div className="p-4">
             {tab === 'pilot-ending' && <PilotEndingTab rows={serializedPilot} />}
-            {tab === 'active-by-price' && <ActiveByPriceTab rows={serializedPrice} />}
+            {tab === 'active-by-price' && <ActiveByPriceTab rows={serializedPrice} excluded={serializedPriceExcluded} />}
             {tab === 'live-pilot-status' && <LivePilotTab rows={serializedLive} />}
           </div>
         </div>

@@ -107,6 +107,58 @@ function isActive(status: string | null): boolean {
   return ACTIVE_STATUSES.includes((status ?? '').toLowerCase());
 }
 
+/**
+ * Returns true if financeNotes contains a paid-upfront keyword (case-insensitive).
+ *
+ * These clients pay for a block of months in a single invoice rather than
+ * month-to-month. They are excluded from Tab 2 (recurring-by-price) and shown
+ * with a "Paid upfront" badge on Tabs 1 and 3.
+ *
+ * Add new substrings here when new financeNotes patterns appear in PipeDrive.
+ * Currently only "Paid Upfront" is observed; the rest are future-proofing.
+ */
+function isPaidUpfront(financeNotes: string | null): boolean {
+  const fn = (financeNotes ?? '').toLowerCase();
+  return [
+    'paid upfront',
+    'paid up front',
+    'paid up-front',
+    'upfront',
+    'annual prepay',
+    'prepay',
+    'prepaid',
+    'annual',
+    'lump sum',
+  ].some((kw) => fn.includes(kw));
+}
+
+/**
+ * Ratio-based backstop for paid-upfront detection.
+ *
+ * Returns true when a client has a recent ok-successful payment AND the ratio
+ * of next-invoice-total to last-paid-amount is > 3x or < 0.33x. This catches
+ * clients whose financeNotes don't mention "paid upfront" but whose payment
+ * pattern strongly suggests an upfront/multi-month billing structure.
+ *
+ * Known false positives (round 6): monthly clients on a promotional first-month
+ * credit ("Gold deal (4 months) | $1,000 credit first month") also trigger this
+ * threshold because their first invoice is small (~$200) and subsequent invoices
+ * are the normal monthly rate (~$2,575). Review the amber-badged clients in the
+ * Tab 2 excluded section to confirm.
+ *
+ * Only called when isPaidUpfront() returned false.
+ */
+function isLikelyPaidUpfront(
+  lastPaidAmt: number | null,
+  nextAmt: number | null,
+  hasRecentOkPayment: boolean
+): boolean {
+  if (!hasRecentOkPayment || lastPaidAmt === null || !nextAmt) return false;
+  if (lastPaidAmt === 0) return false;
+  const ratio = nextAmt / lastPaidAmt;
+  return ratio > 3.0 || ratio < 0.33;
+}
+
 /** Tier from financeNotes only — no retainer-amount matching */
 function deriveTier(financeNotes: string | null): 'Platinum' | 'Gold' | null {
   const fn = (financeNotes ?? '').toLowerCase();
@@ -174,8 +226,10 @@ export type ClientRow = {
   organizationName: string;
   accountStatus: string;
   chargeoverCustomerId: string | null;
-  // financeNotes substring "paid upfront" — used to exclude from Tab 2 and badge on Tab 1
+  // isPaidUpfront() substring match — authoritative (purple badge)
   paidUpfront: boolean;
+  // isLikelyPaidUpfront() ratio heuristic — backstop (amber dotted badge)
+  likelyPaidUpfront: boolean;
   // Pilot
   pilotRolloverEndDate: Date | null;
   isInPilot: boolean;
@@ -255,7 +309,20 @@ function buildRow(c: ClientRaw): ClientRow {
   const isInPilot = !!(pilotEnd && pilotEnd > now);
   const isPastPilot = !!(pilotEnd && pilotEnd <= now);
 
-  const paidUpfront = (c.financeNotes ?? '').toLowerCase().includes('paid upfront');
+  const paidUpfront = isPaidUpfront(c.financeNotes);
+
+  // Ratio heuristic: only relevant when substring check didn't trigger
+  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+  const recentOkPayments = c.payments.filter(
+    (p) =>
+      PAID_STATUSES.includes((p.status ?? '').toLowerCase()) &&
+      p.paidDate !== null &&
+      new Date(p.paidDate) >= sixtyDaysAgo
+  );
+  const lastOkAmt = recentOkPayments[0] ? Number(recentOkPayments[0].amount) : null;
+  const likelyPaidUpfront =
+    !paidUpfront && isLikelyPaidUpfront(lastOkAmt, nextPaymentAmount, recentOkPayments.length > 0);
+
   const tier = deriveTier(c.financeNotes);
 
   return {
@@ -265,6 +332,7 @@ function buildRow(c: ClientRaw): ClientRow {
     accountStatus: c.accountStatus,
     chargeoverCustomerId: c.chargeoverCustomerId,
     paidUpfront,
+    likelyPaidUpfront,
     pilotRolloverEndDate: pilotEnd,
     isInPilot,
     isPastPilot,
@@ -328,9 +396,14 @@ export async function getPilotEndingRows(): Promise<ClientRow[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Tab 2: Active by price — recurring clients only (paidUpfront + null amount excluded)
+// Tab 2: Active by price — recurring clients only
 // ---------------------------------------------------------------------------
-export async function getActiveByPriceRows(): Promise<ClientRow[]> {
+export type ActiveByPriceResult = {
+  rows: ClientRow[];     // Recurring monthly clients (paid-upfront excluded)
+  excluded: ClientRow[]; // Paid-upfront clients (confirmed or ratio-inferred)
+};
+
+export async function getActiveByPriceRows(): Promise<ActiveByPriceResult> {
   const clients = (await prisma.client.findMany({
     where: {
       accountStatus: { in: ['Live', 'Pre-Launch'] },
@@ -340,10 +413,17 @@ export async function getActiveByPriceRows(): Promise<ClientRow[]> {
     orderBy: { organizationName: 'asc' },
   })) as unknown as ClientRaw[];
 
-  return dedupeGhosts(clients)
-    .map(buildRow)
-    .filter((r) => !r.paidUpfront && r.nextPaymentAmount !== null && r.nextPaymentAmount > 0)
+  const all = dedupeGhosts(clients).map(buildRow);
+
+  const rows = all
+    .filter((r) => !r.paidUpfront && !r.likelyPaidUpfront && r.nextPaymentAmount !== null && r.nextPaymentAmount > 0)
     .sort((a, b) => (b.nextPaymentAmount ?? 0) - (a.nextPaymentAmount ?? 0));
+
+  const excluded = all
+    .filter((r) => r.paidUpfront || r.likelyPaidUpfront)
+    .sort((a, b) => a.organizationName.localeCompare(b.organizationName));
+
+  return { rows, excluded };
 }
 
 // ---------------------------------------------------------------------------
@@ -461,7 +541,7 @@ export async function getStats(): Promise<Stats> {
       else if (pd >= m2Start && pd <= m2End) pilotsEndingMonthAfterNext++;
     }
 
-    const paidUpfront = (c.financeNotes ?? '').toLowerCase().includes('paid upfront');
+    const paidUpfront = isPaidUpfront(c.financeNotes);
     const pilotEnd = c.pilotRolloverEndDate ? new Date(c.pilotRolloverEndDate) : null;
     const isPastPilot = !!(pilotEnd && pilotEnd <= now);
     const pilotEndsThisMonth = !!(
