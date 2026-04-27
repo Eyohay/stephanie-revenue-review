@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id                   String         @id @default(cuid())
+  pipedriveOrgId       Int            @unique
+  chargeoverCustomerId String?
+  organizationName     String
+  brandName            String?
+  accountStatus        String
+  accountManager       String?
+  launchSpecialist     String?
+  writer               String?
+  dealType             String?
+  engagementType       String?
+  monthlyRetainer      Decimal?       @db.Decimal(10, 2)
+  setupFee             Decimal?       @db.Decimal(10, 2)
+  financeNotes         String?
+  wonTime              DateTime?
+  kickoffCall               DateTime?
+  actualLaunchDate          DateTime?
+  pilotRolloverEndDate      DateTime?
+  postPilotExtendedEndDate  DateTime?
+  lastSyncedAt              DateTime       @default(now())
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime
+  flags                Flag[]
+  payments             Payment[]
+  subscriptions        Subscription[]
+
+  @@index([accountStatus])
+  @@index([chargeoverCustomerId])
+}
+
+model Subscription {
+  id                       String    @id @default(cuid())
+  clientId                 String
+  chargeoverSubscriptionId String    @unique
+  status                   String
+  amount                   Decimal   @db.Decimal(10, 2)
+  startDate                DateTime?
+  endDate                  DateTime?
+  lineItems                Json?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime
+  client                   Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([status])
+}
+
+model Payment {
+  id                  String    @id @default(cuid())
+  clientId            String
+  chargeoverPaymentId String    @unique
+  amount              Decimal   @db.Decimal(10, 2)
+  paidDate            DateTime?
+  status              String
+  invoiceId           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime
+  client              Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([paidDate])
+}
+
+model Flag {
+  id          String     @id @default(cuid())
+  clientId    String
+  flagType    FlagType
+  severity    Severity
+  message     String
+  detectedAt  DateTime   @default(now())
+  dismissedAt DateTime?
+  dismissedBy String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime
+  client      Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  FlagNote    FlagNote[]
+
+  @@index([clientId])
+  @@index([flagType])
+  @@index([dismissedAt])
+}
+
+model SyncLog {
+  id                         String    @id @default(cuid())
+  startedAt                  DateTime  @default(now())
+  completedAt                DateTime?
+  status                     String
+  pipedriveRecordsProcessed  Int       @default(0)
+  chargeoverRecordsProcessed Int       @default(0)
+  errors                     Json?
+
+  @@index([startedAt])
+}
+
+model FlagNote {
+  id        String   @id
+  flagId    String
+  body      String
+  createdAt DateTime @default(now())
+  Flag      Flag     @relation(fields: [flagId], references: [id], onDelete: Cascade)
+
+  @@index([flagId])
+}
+
+enum FlagType {
+  MISSING_SUBSCRIPTION
+  ORPHAN_BILLING
+  AMOUNT_MISMATCH
+  DUPLICATE_SUBSCRIPTION
+  MISSED_PAYMENT
+  MISSING_SETUP_FEE
+  MISSING_RETAINER_FIELD
+  MISSING_CHARGEOVER_ID
+  AMOUNT_OUTLIER
+  SUSPENDED_SUBSCRIPTION
+}
+
+enum Severity {
+  info
+  warn
+  error
+}
+
+model ClientNote {
+  id               String    @id @default(cuid())
+  clientId         String    @unique
+  note             String    @db.Text
+  updatedAt        DateTime  @updatedAt
+  updatedBy        String
+  reviewedByAdmin  Boolean   @default(false)
+  reviewedAt       DateTime?
+}
