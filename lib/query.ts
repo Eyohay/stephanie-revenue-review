@@ -359,7 +359,8 @@ export async function getPilotEndingRows(): Promise<ClientRow[]> {
 
   const clients = (await prisma.client.findMany({
     where: {
-      accountStatus: 'Live',
+      // Tab 1 shows Live + Executed Out — pilots ending regardless of current status
+      accountStatus: { in: ['Live', 'Executed Out'] },
       pilotRolloverEndDate: { gte: todayStart, lte: tenDaysEnd },
       ...FLOOR9_WHERE,
     },
@@ -457,7 +458,8 @@ export async function getStats(): Promise<Stats> {
 
   const rawClients = (await prisma.client.findMany({
     where: {
-      accountStatus: 'Live',
+      // KPIs count Live + Executed Out; Pre-Launch excluded
+      accountStatus: { in: ['Live', 'Executed Out'] },
       ...FLOOR9_WHERE,
     },
     select: {
@@ -539,8 +541,8 @@ export async function getStats(): Promise<Stats> {
       postPilotMrr += invoice.amount;
     }
 
-    // Collected this month: all ok-successful MTD payments from post-pilot clients
-    if (isPastPilot) {
+    // Collected this month: ok-successful MTD payments from live post-pilot clients only
+    if (c.accountStatus === 'Live' && isPastPilot) {
       postPilotCollectedThisMonth += c.payments.reduce(
         (sum, p) => sum + Number(p.amount ?? 0),
         0

@@ -1,7 +1,7 @@
 import { type SerializedClientRow } from '@/lib/query';
 import { formatDate, formatUSD, formatUSDPrecise, relativeDays, daysAgo } from '@/lib/format';
 import { LinkPills } from './LinkPills';
-import { TierBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge, LegacyPricingBadge } from './StatusBadge';
+import { StatusBadge, TierBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge, LegacyPricingBadge } from './StatusBadge';
 
 const TH_STYLE: React.CSSProperties = {
   background: 'var(--bg-elevated)',
@@ -62,6 +62,7 @@ export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }
                 <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
                   <div className="flex items-center gap-1 flex-wrap">
                     <span>{r.organizationName}</span>
+                    {r.accountStatus !== 'Live' && <StatusBadge status={r.accountStatus} />}
                     {r.paidUpfront && <PaidUpfrontBadge />}
                     {!r.paidUpfront && r.likelyPaidUpfront && <LikelyPaidUpfrontBadge />}
                   </div>

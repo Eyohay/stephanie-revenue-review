@@ -5,6 +5,8 @@ export function StatusBadge({ status }: { status: string }) {
     style = { background: 'rgba(16,185,129,0.15)', color: '#34d399' };
   } else if (s === 'pre-launch') {
     style = { background: 'rgba(59,130,246,0.15)', color: '#60a5fa' };
+  } else if (s === 'executed out') {
+    style = { background: 'rgba(168,85,247,0.15)', color: '#c084fc' };
   } else {
     style = { background: 'rgba(148,163,184,0.15)', color: '#94a3b8' };
   }
