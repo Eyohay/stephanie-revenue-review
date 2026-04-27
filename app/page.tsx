@@ -3,12 +3,14 @@ import {
   getActiveByPriceRows,
   getLivePilotRows,
   getLastSyncedAt,
+  getStats,
   serializeRow,
 } from '@/lib/query';
 import PilotEndingTab from '@/app/components/PilotEndingTab';
 import ActiveByPriceTab from '@/app/components/ActiveByPriceTab';
 import LivePilotTab from '@/app/components/LivePilotTab';
-import { formatDateTime } from '@/lib/format';
+import StatsSection from '@/app/components/StatsSection';
+import { formatDateTime, daysAgo } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -22,11 +24,12 @@ export default async function DashboardPage({
 }) {
   const tab = (searchParams.tab as Tab) || 'pilot-ending';
 
-  const [pilotRows, priceRows, liveRows, lastSyncedAt] = await Promise.all([
+  const [pilotRows, priceRows, liveRows, lastSyncedAt, stats] = await Promise.all([
     tab === 'pilot-ending' ? getPilotEndingRows() : Promise.resolve([]),
     tab === 'active-by-price' ? getActiveByPriceRows() : Promise.resolve([]),
     tab === 'live-pilot-status' ? getLivePilotRows() : Promise.resolve([]),
     getLastSyncedAt(),
+    getStats(),
   ]);
 
   const serializedPilot = pilotRows.map(serializeRow);
@@ -34,22 +37,26 @@ export default async function DashboardPage({
   const serializedLive = liveRows.map(serializeRow);
 
   const tabs: { key: Tab; label: string }[] = [
-    { key: 'pilot-ending', label: 'Pilot ending' },
+    {
+      key: 'pilot-ending',
+      label: `Pilots ending in next 10 days (${stats.pilotsEndingNext10Days})`,
+    },
     { key: 'active-by-price', label: 'Active clients by price' },
     { key: 'live-pilot-status', label: 'Live clients (pilot status)' },
   ];
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen" style={{ background: 'var(--background)' }}>
       <header className="bg-white border-b" style={{ borderColor: 'var(--color-border-tertiary)' }}>
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold text-gray-900">Stephanie Revenue Review</h1>
-            {lastSyncedAt && (
-              <p className="text-xs text-gray-400">
-                Last synced {formatDateTime(lastSyncedAt)}
-              </p>
-            )}
+            <p className="text-xs text-gray-500">
+              Live &amp; pre-launch clients — revenue &amp; pilot health
+              {lastSyncedAt && (
+                <> · last synced {formatDateTime(lastSyncedAt)} ({daysAgo(lastSyncedAt)})</>
+              )}
+            </p>
           </div>
           <form action="/api/logout" method="post">
             <button type="submit" className="text-sm text-gray-500 hover:text-gray-900">
@@ -57,6 +64,11 @@ export default async function DashboardPage({
             </button>
           </form>
         </div>
+      </header>
+
+      {/* Stats — always visible above tabs */}
+      <div className="bg-white border-b" style={{ borderColor: 'var(--color-border-tertiary)' }}>
+        <StatsSection stats={stats} />
 
         {/* Tab bar */}
         <div className="max-w-7xl mx-auto px-6 flex gap-0 -mb-px">
@@ -77,9 +89,9 @@ export default async function DashboardPage({
             );
           })}
         </div>
-      </header>
+      </div>
 
-      <main className="max-w-7xl mx-auto px-6 py-6">
+      <main className="max-w-7xl mx-auto px-6 py-5">
         <div className="bg-white border rounded-lg overflow-hidden" style={{ borderColor: 'var(--color-border-tertiary)' }}>
           <div className="p-4">
             {tab === 'pilot-ending' && <PilotEndingTab rows={serializedPilot} />}

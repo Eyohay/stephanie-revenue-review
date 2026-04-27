@@ -1,17 +1,16 @@
 import { type SerializedClientRow } from '@/lib/query';
-import { formatDate, formatUSD, relativeDays } from '@/lib/format';
-import { PipeDriveLink, ChargeOverLink } from './LinkPills';
+import { formatDate, formatUSD, formatUSDPrecise, relativeDays, daysAgo } from '@/lib/format';
+import { LinkPills } from './LinkPills';
 import { StatusBadge, PendingBadge } from './StatusBadge';
 
-const TH = 'px-3 py-2 text-left font-medium text-gray-500 whitespace-nowrap';
-const TD = 'px-3 py-2 align-top';
-const BORDER = { borderColor: 'var(--color-border-tertiary)', borderWidth: '0.5px' };
+const TH = 'px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide bg-gray-50 whitespace-nowrap';
+const TD = 'px-3 py-2.5 align-top';
 
 export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }) {
   if (rows.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500 text-sm">
-        No pilots ending in the next 7 days.
+        No pilots ending in the next 10 days.
       </div>
     );
   }
@@ -25,48 +24,43 @@ export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }
             <th className={TH}>Links</th>
             <th className={TH}>Pilot ends</th>
             <th className={TH}>Status</th>
-            <th className={TH}>Subscription</th>
+            <th className={TH} style={{ textAlign: 'right' }}>Monthly amount</th>
             <th className={TH}>Last payment</th>
             <th className={TH}>Next payment</th>
             <th className={TH} style={{ textAlign: 'right' }}>Lifetime total</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="divide-y" style={{ '--tw-divide-color': 'var(--color-border-tertiary)' } as React.CSSProperties}>
           {rows.map((r) => (
-            <tr key={r.id} style={{ borderBottom: '0.5px solid var(--color-border-tertiary)' }} className="hover:bg-gray-50">
+            <tr key={r.id} className="hover:bg-gray-50">
               <td className={TD} style={{ fontWeight: 500 }}>{r.organizationName}</td>
               <td className={TD}>
-                <div className="flex gap-1">
-                  <PipeDriveLink orgId={r.pipedriveOrgId} />
-                  {r.paidUpfront && r.chargeoverCustomerId && (
-                    <ChargeOverLink customerId={r.chargeoverCustomerId} />
-                  )}
-                </div>
+                <LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} />
               </td>
               <td className={TD}>
                 {r.pilotRolloverEndDate ? (
                   <div>
-                    <div>{formatDate(r.pilotRolloverEndDate)}</div>
+                    <div className="font-medium">{formatDate(r.pilotRolloverEndDate)}</div>
                     <div className="text-gray-400 text-[11px]">{relativeDays(r.pilotRolloverEndDate)}</div>
                   </div>
                 ) : '—'}
               </td>
               <td className={TD}><StatusBadge status={r.accountStatus} /></td>
-              <td className={TD}>
+              <td className={TD} style={{ textAlign: 'right', fontWeight: 500 }}>
                 {r.largestSubAmount !== null ? (
-                  <div>
-                    {r.largestSubProductName && (
-                      <div className="text-gray-600">{r.largestSubProductName}</div>
-                    )}
-                    <div className="font-medium">{formatUSD(r.largestSubAmount)}<span className="text-gray-400 font-normal">/mo</span></div>
-                  </div>
+                  <span>{formatUSD(r.largestSubAmount)}<span className="text-gray-400 font-normal">/mo</span></span>
                 ) : <span className="text-gray-400">—</span>}
               </td>
               <td className={TD}>
                 {r.lastPaymentDate ? (
                   <div>
-                    <div>{formatDate(r.lastPaymentDate)}{r.lastPaymentPending && <PendingBadge />}</div>
-                    <div className="text-gray-500">{formatUSD(r.lastPaymentAmount)}</div>
+                    <div className="flex items-center gap-1">
+                      <span>{formatDate(r.lastPaymentDate)}</span>
+                      {r.lastPaymentPending && <PendingBadge />}
+                    </div>
+                    <div className="text-gray-400 text-[11px]">
+                      {formatUSDPrecise(r.lastPaymentAmount)} · {daysAgo(r.lastPaymentDate)}
+                    </div>
                   </div>
                 ) : <span className="text-gray-400">—</span>}
               </td>
@@ -74,7 +68,9 @@ export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }
                 {r.nextPaymentDate ? (
                   <div>
                     <div>{formatDate(r.nextPaymentDate)}</div>
-                    <div className="text-gray-500">{formatUSD(r.nextPaymentAmount)}</div>
+                    <div className="text-gray-400 text-[11px]">
+                      {formatUSDPrecise(r.nextPaymentAmount)} · {daysAgo(r.nextPaymentDate)}
+                    </div>
                   </div>
                 ) : <span className="text-gray-400">—</span>}
               </td>

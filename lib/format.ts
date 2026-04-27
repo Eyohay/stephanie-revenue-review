@@ -7,6 +7,14 @@ export function formatUSD(n: number | null | undefined): string {
   }).format(n);
 }
 
+export function formatUSDPrecise(n: number | null | undefined): string {
+  if (n === null || n === undefined) return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  }).format(n);
+}
+
 export function formatDate(d: Date | string | null | undefined): string {
   if (!d) return '—';
   const date = typeof d === 'string' ? new Date(d) : d;
@@ -29,7 +37,7 @@ export function formatDateTime(d: Date | string | null | undefined): string {
   }).format(date);
 }
 
-/** "in 3 days" / "3 days ago" / "today" */
+/** "in 3 days" / "3 days ago" / "today" — future-positive */
 export function relativeDays(d: Date | string | null | undefined): string {
   if (!d) return '—';
   const date = typeof d === 'string' ? new Date(d) : d;
@@ -41,7 +49,23 @@ export function relativeDays(d: Date | string | null | undefined): string {
   return `${ago} day${ago === 1 ? '' : 's'} ago`;
 }
 
-/** Full calendar months between two dates (floor) */
+/** "3 days ago" / "in 2 days" / "today" — past-positive (matches active-clients-billing) */
+export function daysAgo(d: Date | string | null | undefined): string {
+  if (!d) return '—';
+  const date = typeof d === 'string' ? new Date(d) : d;
+  const diffMs = Date.now() - date.getTime();
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (days === 0) return 'today';
+  if (days === 1) return '1 day ago';
+  if (days < 0) {
+    const future = Math.abs(days);
+    if (future === 1) return 'in 1 day';
+    return `in ${future} days`;
+  }
+  return `${days} days ago`;
+}
+
+/** Full calendar months between a past date and now (floor) */
 export function monthsApart(past: Date | string, now: Date): number {
   const p = typeof past === 'string' ? new Date(past) : past;
   return (
