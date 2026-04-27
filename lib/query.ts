@@ -1,11 +1,11 @@
 import { prisma } from './prisma';
 
 // ---------------------------------------------------------------------------
-// Constants
+// Constants — exported so joinPipedriveWithNeon.ts can reuse them
 // ---------------------------------------------------------------------------
-const ACTIVE_STATUSES = ['active', 'current', 'trialing', 'in_trial', 'live', 'a'];
-const PAID_STATUSES = ['paid', 'successful', 'succeeded', 'completed', 'captured', 'settled', 'ok-successful'];
-const FAILED_STATUSES = ['no-declined', 'fail', 'failed', 'declined', 'refunded', 'error'];
+export const ACTIVE_STATUSES = ['active', 'current', 'trialing', 'in_trial', 'live', 'a'];
+export const PAID_STATUSES = ['paid', 'successful', 'succeeded', 'completed', 'captured', 'settled', 'ok-successful'];
+export const FAILED_STATUSES = ['no-declined', 'fail', 'failed', 'declined', 'refunded', 'error'];
 
 const FLOOR9_ENGAGEMENT = ['Floor 9', 'floor 9', 'FLOOR 9', 'Floor9', 'floor9'];
 const FLOOR9_BRAND = [...FLOOR9_ENGAGEMENT, 'Floor 9 Ventures', 'floor 9 ventures', 'FLOOR 9 VENTURES'];
@@ -47,7 +47,7 @@ const FLOOR9_WHERE = {
  * "YYYY-MM-DD HH:MM:SS" without a TZ suffix. Anchoring to noon UTC prevents
  * the Eastern-timezone off-by-one that caused May 11 to display as May 10.
  */
-function nextInvoiceTotal(
+export function nextInvoiceTotal(
   sub: { amount: unknown; lineItems: unknown },
   now: Date
 ): { date: Date; amount: number } | null {
@@ -89,7 +89,7 @@ function nextInvoiceTotal(
   return { date: new Date(soonestDay + 'T12:00:00.000Z'), amount: subAmt };
 }
 
-function isActive(status: string | null): boolean {
+export function isActive(status: string | null): boolean {
   return ACTIVE_STATUSES.includes((status ?? '').toLowerCase());
 }
 
@@ -103,7 +103,7 @@ function isActive(status: string | null): boolean {
  * Add new substrings here when new financeNotes patterns appear in PipeDrive.
  * Currently only "Paid Upfront" is observed; the rest are future-proofing.
  */
-function isPaidUpfront(financeNotes: string | null): boolean {
+export function isPaidUpfront(financeNotes: string | null): boolean {
   const fn = (financeNotes ?? '').toLowerCase();
   return [
     'paid upfront',
@@ -135,7 +135,7 @@ function isPaidUpfront(financeNotes: string | null): boolean {
  *
  * Only called when isPaidUpfront() returned false.
  */
-function isLikelyPaidUpfront(sub: SubRaw | null): boolean {
+export function isLikelyPaidUpfront(sub: SubRaw | null): boolean {
   if (!sub) return false;
   const liArr = (sub.lineItems as Array<{ type?: string; quantity?: number; qty?: number }> | null) ?? [];
   if (!Array.isArray(liArr)) return false;
@@ -174,15 +174,15 @@ function dedupeGhosts<T extends {
 }
 
 // ---------------------------------------------------------------------------
-// Shared types
+// Shared types — exported for reuse in joinPipedriveWithNeon.ts
 // ---------------------------------------------------------------------------
-type SubRaw = {
+export type SubRaw = {
   status: string | null;
   amount: unknown;
   lineItems: unknown;
 };
 
-type PayRaw = {
+export type PayRaw = {
   amount: unknown;
   paidDate: Date | null;
   status: string;

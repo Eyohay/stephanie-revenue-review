@@ -11,12 +11,14 @@ import PilotEndingTab from '@/app/components/PilotEndingTab';
 import ActiveByPriceTab from '@/app/components/ActiveByPriceTab';
 import LivePilotTab from '@/app/components/LivePilotTab';
 import StatsSection from '@/app/components/StatsSection';
+import PilotsEndingThisMonthLoader from '@/app/components/tabs/PilotsEndingThisMonthLoader';
 import { formatDateTime, daysAgo } from '@/lib/format';
+import { Suspense } from 'react';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-type Tab = 'pilot-ending' | 'active-by-price' | 'live-pilot-status';
+type Tab = 'pilot-ending' | 'pilots-this-month' | 'active-by-price' | 'live-pilot-status';
 
 export default async function DashboardPage({
   searchParams,
@@ -39,10 +41,14 @@ export default async function DashboardPage({
   const serializedPriceExcluded = priceResult.excluded.map(serializeRow);
   const serializedLive = liveRows.map(serializeRow);
 
+  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const currentMonthName = MONTH_NAMES[new Date().getMonth()];
+
   const tabs: { key: Tab; label: string }[] = [
-    { key: 'pilot-ending', label: `Pilots ending in next 10 days (${stats.pilotsEndingNext10Days})` },
-    { key: 'active-by-price', label: 'Active clients by price' },
-    { key: 'live-pilot-status', label: 'Live clients (pilot status)' },
+    { key: 'pilot-ending',       label: `Pilots ending in next 10 days (${stats.pilotsEndingNext10Days})` },
+    { key: 'pilots-this-month',  label: `Pilots ending in ${currentMonthName} · PipeDrive` },
+    { key: 'active-by-price',    label: 'Active clients by price' },
+    { key: 'live-pilot-status',  label: 'Live clients (pilot status)' },
   ];
 
   return (
@@ -106,6 +112,15 @@ export default async function DashboardPage({
         >
           <div className="p-4">
             {tab === 'pilot-ending' && <PilotEndingTab rows={serializedPilot} />}
+            {tab === 'pilots-this-month' && (
+              <Suspense fallback={
+                <div className="text-center py-12 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  Loading from PipeDrive…
+                </div>
+              }>
+                <PilotsEndingThisMonthLoader />
+              </Suspense>
+            )}
             {tab === 'active-by-price' && <ActiveByPriceTab rows={serializedPrice} excluded={serializedPriceExcluded} />}
             {tab === 'live-pilot-status' && <LivePilotTab rows={serializedLive} />}
           </div>
