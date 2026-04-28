@@ -20,7 +20,7 @@ import {
   isActive,
   isPaidUpfront,
   isLikelyPaidUpfront,
-  nextScheduledForAllSubs,
+  nextScheduledPayment,
   type SubRaw,
   type PayRaw,
 } from './query';
@@ -77,8 +77,8 @@ function buildPaymentData(neon: NeonClient, now: Date): Pick<
     (a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0)
   )[0] ?? null;
 
-  // Next scheduled invoice: search ALL active subs (finds companion sub's nextBillDate)
-  const scheduled = nextScheduledForAllSubs(activeSubs, now);
+  // Next scheduled invoice: canonical function covering all historical fixes
+  const scheduled = nextScheduledPayment(activeSubs, now);
 
   // Monthly amount: sub.amount when > 0; fallback to lineItemSum from companion recurring
   // sub for paid-upfront clients whose largestSub.amount = 0.

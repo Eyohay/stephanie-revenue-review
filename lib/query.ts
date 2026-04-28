@@ -23,64 +23,66 @@ const FLOOR9_WHERE = {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the next scheduled invoice amount and date for a subscription.
+ * Canonical next-scheduled-payment function.
  *
- * ROUND 7 REWRITE — source-of-truth change:
+ * Combines all three historical fixes into one function — no parallel implementations:
  *
- *   AMOUNT  → Subscription.amount (ChargeOver's computed recurring field).
- *             This is authoritative: ChargeOver excludes one-off service items,
- *             multi-month upfront blocks, and credits from this field.
- *             sub.amount = 0 means the subscription is paid upfront with no
- *             recurring schedule → return null.
+ *   Round 14: Iterates ALL active subs (not just the largest) so that paid-upfront
+ *             clients with a companion recurring sub get a next-payment date + amount.
  *
- *   DATE    → Soonest future nextBillDate across qty=1 service line items only.
- *             qty>1 items are multi-month upfront blocks whose dates are not
- *             recurring billing dates.
+ *   Round 7:  AMOUNT comes from sub.amount (ChargeOver's pre-computed recurring field),
+ *             NOT from summing lineItems. ChargeOver excludes discount line items,
+ *             one-off service charges (e.g. sherwoodforestinc's $350 Profile Overhaul),
+ *             and multi-month upfront blocks from sub.amount. A lineItem sum always
+ *             inflates: discount items carry a positive unitPrice that adds to the sum
+ *             instead of subtracting (e.g. Momentum Media Group: $2,500 + $75 + $1,200
+ *             discount = $3,775 instead of the correct $2,575).
  *
- * Previous line-item-sum approach had two bugs (round 7 diagnostic):
- *   BUG A — Summed qty>1 multi-month blocks on paid-upfront subs → $10K–$14K totals.
- *   BUG B — Included stray one-off service items (e.g. atlphantom's $1,000 catch-up,
- *            sherwoodforestinc's $350 "Linkedin Profile Overhaul") that ChargeOver
- *            correctly excludes from sub.amount.
+ *   Round 5:  Date anchored to noon UTC to avoid Eastern-timezone off-by-one.
+ *             ChargeOver stores dates as "YYYY-MM-DD HH:MM:SS" without TZ suffix.
  *
- * Round 5 date normalization is preserved: ChargeOver stores dates as
- * "YYYY-MM-DD HH:MM:SS" without a TZ suffix. Anchoring to noon UTC prevents
- * the Eastern-timezone off-by-one that caused May 11 to display as May 10.
+ * DATE strategy (layered fallback within each sub, same as historic logic):
+ *   Strategy 1 — qty=1, non-discount items (handles standard recurring line items)
+ *   Strategy 2 — any service item (relaxes qty restriction)
+ *   Strategy 3 — any item at all (last resort for unusual sub structures)
+ *
+ * AMOUNT strategy (for the winning sub):
+ *   Primary  — sub.amount when > 0 (authoritative; excludes all noise)
+ *   Fallback — filtered lineItem sum when sub.amount = 0 (paid-upfront companion subs
+ *              where ChargeOver zeroes the sub-level amount but line items carry prices).
+ *              Filter: qty=1, type !== "discount" items only.
+ *
+ * Returns null if no active sub has any future nextBillDate, or if no amount can be
+ * derived (amount = 0 after all strategies).
  */
-export function nextInvoiceTotal(
-  sub: { amount: unknown; lineItems: unknown },
-  now: Date
-): { date: Date | null; amount: number } | null {
-  // sub.amount is the authoritative recurring monthly charge.
-  // 0 (or missing) means paid upfront / no recurring schedule.
-  const subAmt = Number(sub.amount ?? 0);
-  if (subAmt <= 0) return null;
-
-  type LineItem = {
+export function nextScheduledPayment(
+  activeSubs: SubRaw[],
+  now: Date,
+): { date: Date; amount: number } | null {
+  type Li = {
     nextBillDate?: string;
     next_bill_date?: string;
+    unitPrice?: number;
     quantity?: number;
     qty?: number;
     type?: string;
   };
 
-  const liArr = sub.lineItems as LineItem[] | null;
-  const toDay = (raw: string): string => raw.split(/[\sT]/)[0];
   const todayUTC = now.toISOString().slice(0, 10);
+  const toDay = (raw: string) => String(raw).split(/[\sT]/)[0];
+  const isFuture = (d: string) => d > todayUTC;
 
-  // Find the soonest future bill date using layered strategies:
-  //   Strategy 1: qty=1 non-discount items (original strict rule)
-  //   Strategy 2: any service items (relax qty filter)
-  //   Strategy 3: any line item at all
-  // If no future date is found we still return the amount — ChargeOver may not
-  // have set nextBillDate yet (e.g. billing cycle just completed). Showing the
-  // monthly amount without a date is better than hiding both.
-  let soonestDay: string | null = null;
+  let bestDay: string | null = null;
+  let bestSub: SubRaw | null = null;
 
-  if (Array.isArray(liArr) && liArr.length > 0) {
-    const isFuture = (d: string) => d > todayUTC;
+  for (const sub of activeSubs) {
+    const liArr = sub.lineItems as Li[] | null;
+    if (!Array.isArray(liArr) || liArr.length === 0) continue;
 
-    // Strategy 1: qty=1 non-discount items
+    // Find soonest FUTURE nextBillDate on this sub using layered strategies
+    let candidateDay: string | null = null;
+
+    // Strategy 1: qty=1 non-discount items (strictest — covers standard recurring items)
     for (const item of liArr) {
       if (item?.type === 'discount') continue;
       const qty = item?.quantity ?? item?.qty ?? 1;
@@ -88,36 +90,84 @@ export function nextInvoiceTotal(
       const raw = item?.nextBillDate ?? item?.next_bill_date;
       if (!raw) continue;
       const day = toDay(String(raw));
-      if (isFuture(day) && (!soonestDay || day < soonestDay)) soonestDay = day;
+      if (isFuture(day) && (!candidateDay || day < candidateDay)) candidateDay = day;
     }
 
-    // Strategy 2: any service items (qty filter relaxed)
-    if (!soonestDay) {
+    // Strategy 2: any service item (relaxes qty restriction)
+    if (!candidateDay) {
       for (const item of liArr) {
         if (item?.type !== 'service') continue;
         const raw = item?.nextBillDate ?? item?.next_bill_date;
         if (!raw) continue;
         const day = toDay(String(raw));
-        if (isFuture(day) && (!soonestDay || day < soonestDay)) soonestDay = day;
+        if (isFuture(day) && (!candidateDay || day < candidateDay)) candidateDay = day;
       }
     }
 
-    // Strategy 3: any line item
-    if (!soonestDay) {
+    // Strategy 3: any item (broadest fallback)
+    if (!candidateDay) {
       for (const item of liArr) {
         const raw = item?.nextBillDate ?? item?.next_bill_date;
         if (!raw) continue;
         const day = toDay(String(raw));
-        if (isFuture(day) && (!soonestDay || day < soonestDay)) soonestDay = day;
+        if (isFuture(day) && (!candidateDay || day < candidateDay)) candidateDay = day;
       }
+    }
+
+    if (!candidateDay) continue;
+    if (!bestDay || candidateDay < bestDay) {
+      bestDay = candidateDay;
+      bestSub = sub;
     }
   }
 
-  // Always return the amount when sub.amount > 0.
-  // date may be null when ChargeOver hasn't set nextBillDate yet — the UI
-  // shows the amount with "—" for the date column, which is better than "—" for both.
-  const date = soonestDay ? new Date(soonestDay + 'T12:00:00.000Z') : null;
-  return { date, amount: subAmt };
+  if (!bestDay || !bestSub) return null;
+
+  // Amount: use sub.amount when > 0 — this is ChargeOver's authoritative recurring
+  // charge that already excludes discounts, one-off items, and upfront blocks.
+  // Fall back to a filtered lineItem sum only for sub.amount=0 companion subs.
+  const subAmt = Number(bestSub.amount ?? 0);
+  let amount: number;
+
+  if (subAmt > 0) {
+    amount = subAmt;
+  } else {
+    const liArr = bestSub.lineItems as Li[] | null;
+    if (Array.isArray(liArr)) {
+      // Filtered sum: qty=1, non-discount items only — same filter as Strategy 1
+      amount = liArr
+        .filter(li => li?.type !== 'discount' && (li?.quantity ?? li?.qty ?? 1) === 1)
+        .reduce((s, li) => s + Number(li?.unitPrice ?? 0), 0);
+      // Broader fallback: any non-discount item if qty=1 filter yields nothing
+      if (amount === 0) {
+        amount = liArr
+          .filter(li => li?.type !== 'discount')
+          .reduce((s, li) =>
+            s + Number(li?.unitPrice ?? 0) * Number(li?.quantity ?? li?.qty ?? 1), 0);
+      }
+    } else {
+      amount = 0;
+    }
+  }
+
+  if (amount <= 0) return null;
+
+  // Anchor to noon UTC — avoids Eastern-timezone off-by-one (round 5 fix)
+  return { date: new Date(bestDay + 'T12:00:00.000Z'), amount };
+}
+
+/**
+ * @deprecated Use nextScheduledPayment(activeSubs, now) instead.
+ * Kept only to avoid breaking any external callers during transition.
+ * Will be removed in round 17.
+ */
+export function nextInvoiceTotal(
+  sub: { amount: unknown; lineItems: unknown },
+  now: Date
+): { date: Date | null; amount: number } | null {
+  const result = nextScheduledPayment([sub as SubRaw], now);
+  if (!result) return null;
+  return { date: result.date, amount: result.amount };
 }
 
 export function isActive(status: string | null): boolean {
@@ -179,63 +229,11 @@ export function isLikelyPaidUpfront(sub: SubRaw | null): boolean {
 }
 
 /**
- * Compute the next scheduled invoice across ALL active subscriptions.
- *
- * Ported from active-clients-billing's approach — iterates every active sub
- * (not just the largest) and picks the one with the earliest nextBillDate in
- * lineItems JSON.  Amount = sum of (unitPrice × quantity) for all line items
- * on that sub (may be a multi-month lump rather than the monthly rate).
- *
- * No sub.amount gate — paid-upfront subs with sub.amount = 0 still have
- * nextBillDate set on the LINE ITEMS of a companion subscription that
- * represents the upcoming recurring charge.
+ * @deprecated Use nextScheduledPayment(activeSubs, now) instead.
+ * This alias exists only to avoid compile errors in any file still importing
+ * this name. Will be removed in round 17.
  */
-export function nextScheduledForAllSubs(
-  activeSubs: SubRaw[],
-  now: Date,
-): { date: Date; amount: number } | null {
-  type Li = {
-    nextBillDate?: string;
-    next_bill_date?: string;
-    unitPrice?: number;
-    quantity?: number;
-    qty?: number;
-  };
-
-  let bestDate: Date | null = null;
-  let bestAmount = 0;
-
-  for (const sub of activeSubs) {
-    const liArr = sub.lineItems as Li[] | null;
-    if (!Array.isArray(liArr) || liArr.length === 0) continue;
-
-    let candidateDate: Date | null = null;
-    for (const item of liArr) {
-      const raw = item?.nextBillDate ?? item?.next_bill_date;
-      if (!raw) continue;
-      const d = new Date(raw);
-      if (!candidateDate || d < candidateDate) candidateDate = d;
-    }
-    if (!candidateDate) continue;
-
-    if (!bestDate || candidateDate < bestDate) {
-      bestDate = candidateDate;
-      // Sum all line items (unitPrice × qty) — matches active-clients-billing's subAmount()
-      const sum = liArr.reduce(
-        (s, li) =>
-          s + Number(li?.unitPrice ?? 0) * Number(li?.quantity ?? li?.qty ?? 1),
-        0,
-      );
-      bestAmount = sum > 0 ? sum : Number(sub.amount ?? 0);
-    }
-  }
-
-  if (!bestDate) return null;
-
-  // Anchor to noon UTC — avoids Eastern-timezone off-by-one (round 5 fix)
-  const dateStr = bestDate.toISOString().slice(0, 10);
-  return { date: new Date(dateStr + 'T12:00:00.000Z'), amount: bestAmount };
-}
+export const nextScheduledForAllSubs = nextScheduledPayment;
 
 /** Tier from financeNotes only — no retainer-amount matching */
 function deriveTier(financeNotes: string | null): 'Platinum' | 'Gold' | null {
@@ -380,9 +378,8 @@ function buildRow(c: ClientRaw): ClientRow {
     ? !PAID_STATUSES.includes((lastAny.status ?? '').toLowerCase())
     : false;
 
-  // Next scheduled invoice: search ALL active subs (ported from active-clients-billing).
-  // This finds the companion recurring sub's nextBillDate even when largestSub.amount = 0.
-  const scheduled = nextScheduledForAllSubs(activeSubs, now);
+  // Next scheduled invoice: canonical function covering all historical fixes.
+  const scheduled = nextScheduledPayment(activeSubs, now);
   const nextPaymentDate = scheduled?.date ?? null;
   const nextPaymentAmount = scheduled?.amount ?? null;
 
@@ -639,12 +636,9 @@ export async function getStats(): Promise<Stats> {
       pilotEnd && pilotEnd >= thisMonthStart && pilotEnd <= thisMonthEnd
     );
 
-    // Next invoice from largest active subscription (sort by sub.amount)
+    // Next scheduled invoice — canonical function
     const activeSubs = c.subscriptions.filter((s) => isActive(s.status));
-    const largestSub = [...activeSubs].sort(
-      (a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0)
-    )[0] ?? null;
-    const invoice = largestSub ? nextInvoiceTotal(largestSub, now) : null;
+    const invoice = nextScheduledPayment(activeSubs, now);
 
     // Post-pilot MRR: live, past pilot, not paid-upfront, has a future invoice
     if (c.accountStatus === 'Live' && isPastPilot && !paidUpfront && invoice) {
