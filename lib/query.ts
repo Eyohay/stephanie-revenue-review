@@ -123,14 +123,37 @@ export function nextScheduledPayment(
 
   if (!bestDay || !bestSub) return null;
 
-  // Amount: use sub.amount when > 0 — this is ChargeOver's authoritative recurring
-  // charge that already excludes discounts, one-off items, and upfront blocks.
-  // Fall back to a filtered lineItem sum only for sub.amount=0 companion subs.
+  // Amount derivation — three cases handled:
+  //
+  //   Case 1 (monthly billing): sub.amount == serviceSum (qty=1, non-discount items).
+  //     Either value is correct; min() picks either.
+  //
+  //   Case 2 (bimonthly / quarterly billing): sub.amount = serviceSum × N (N=2,3,…).
+  //     ChargeOver stores the per-invoice total, not the monthly rate. serviceSum gives
+  //     the per-month rate. min() picks serviceSum.
+  //     Observed: hrpmediagroup, radiansys ($4,120 vs $2,060), bertonlaw ($2,060 vs $1,030).
+  //
+  //   Case 3 (stray one-off service items — round 7): serviceSum > sub.amount because
+  //     non-recurring service items (e.g. sherwoodforest's $350 Profile Overhaul) inflate
+  //     the lineItem sum. sub.amount correctly excludes them. min() picks sub.amount.
+  //
+  //   Case 4 (sub.amount = 0 — paid-upfront companion subs): fall back to filtered
+  //     lineItem sum as before.
+  //
+  // serviceSum = sum of unitPrice for qty=1, non-discount lineItems.
   const subAmt = Number(bestSub.amount ?? 0);
   let amount: number;
 
   if (subAmt > 0) {
-    amount = subAmt;
+    const liArrForAmt = bestSub.lineItems as Li[] | null;
+    const serviceSum = Array.isArray(liArrForAmt)
+      ? liArrForAmt
+          .filter(li => li?.type !== 'discount' && (li?.quantity ?? li?.qty ?? 1) === 1)
+          .reduce((s, li) => s + Number(li?.unitPrice ?? 0), 0)
+      : 0;
+    // Use min(sub.amount, serviceSum) when serviceSum is meaningful.
+    // When serviceSum = 0 (e.g. no qty=1 non-discount items), sub.amount is the only signal.
+    amount = serviceSum > 0 ? Math.min(subAmt, serviceSum) : subAmt;
   } else {
     const liArr = bestSub.lineItems as Li[] | null;
     if (Array.isArray(liArr)) {
