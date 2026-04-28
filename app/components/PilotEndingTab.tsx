@@ -49,8 +49,11 @@ export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }
         </thead>
         <tbody>
           {rows.map((r) => {
-            // mismatch: only flag recurring clients where last vs next differ meaningfully
-            const mismatch = r.monthlyAmount !== null && hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
+            // mismatch: only flag recurring (non-upfront) clients where last vs next differ meaningfully.
+            // Upfront clients always have a lump-sum last payment that dwarfs the monthly rate — exclude them.
+            const mismatch = r.monthlyAmount !== null
+              && !r.paidUpfront && !r.likelyPaidUpfront
+              && hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
             return (
               <tr
                 key={r.id}

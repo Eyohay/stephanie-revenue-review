@@ -380,14 +380,21 @@ function buildRow(c: ClientRaw): ClientRow {
     ? !PAID_STATUSES.includes((lastAny.status ?? '').toLowerCase())
     : false;
 
-  // Monthly amount: sub.amount from largest active subscription (null when paid-upfront)
-  const monthlyAmount = Number(largestSub?.amount ?? 0) > 0 ? Number(largestSub!.amount) : null;
-
   // Next scheduled invoice: search ALL active subs (ported from active-clients-billing).
   // This finds the companion recurring sub's nextBillDate even when largestSub.amount = 0.
   const scheduled = nextScheduledForAllSubs(activeSubs, now);
   const nextPaymentDate = scheduled?.date ?? null;
   const nextPaymentAmount = scheduled?.amount ?? null;
+
+  // Monthly amount: sub.amount when > 0 (authoritative recurring field).
+  // Fallback: lineItemSum from nextScheduledForAllSubs() for paid-upfront clients whose
+  // largest sub has amount=0 but have a companion recurring sub (e.g. outfittalent,
+  // lightningkite, EQ Schools, molten-layer, trueproductions). This surfaces the
+  // recurring template's amount so the Monthly column isn't blank for those clients.
+  // Only true "no recurring template" clients (null scheduled) stay at null.
+  const monthlyAmount = Number(largestSub?.amount ?? 0) > 0
+    ? Number(largestSub!.amount)
+    : (nextPaymentAmount ?? null);
 
   const pilotEnd = c.pilotRolloverEndDate ? new Date(c.pilotRolloverEndDate) : null;
   const isInPilot = !!(pilotEnd && pilotEnd > now);

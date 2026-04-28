@@ -108,7 +108,7 @@ export default function StatsSection({ stats }: { stats: Stats }) {
         <KpiCard
           label={`Post-pilot collected — ${stats.thisMonthName}`}
           value={formatUSD(stats.postPilotCollectedThisMonth)}
-          sub="month-to-date · ok-successful"
+          sub="month-to-date · live only · unverified"
           accent="green"
         />
         <KpiCard

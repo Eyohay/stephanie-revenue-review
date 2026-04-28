@@ -77,11 +77,14 @@ function buildPaymentData(neon: NeonClient, now: Date): Pick<
     (a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0)
   )[0] ?? null;
 
-  // Monthly amount: sub.amount from largest active sub (null when paid-upfront)
-  const monthlyAmount = Number(largestSub?.amount ?? 0) > 0 ? Number(largestSub!.amount) : null;
-
   // Next scheduled invoice: search ALL active subs (finds companion sub's nextBillDate)
   const scheduled = nextScheduledForAllSubs(activeSubs, now);
+
+  // Monthly amount: sub.amount when > 0; fallback to lineItemSum from companion recurring
+  // sub for paid-upfront clients whose largestSub.amount = 0.
+  const monthlyAmount = Number(largestSub?.amount ?? 0) > 0
+    ? Number(largestSub!.amount)
+    : (scheduled?.amount ?? null);
 
   const nonFailed = neon.payments.filter(
     p => !FAILED_STATUSES.includes((p.status ?? '').toLowerCase())
