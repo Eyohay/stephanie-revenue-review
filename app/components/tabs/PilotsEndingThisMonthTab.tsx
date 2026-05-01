@@ -9,6 +9,7 @@ import {
   PaidUpfrontBadge,
   LikelyPaidUpfrontBadge,
   LegacyPricingBadge,
+  RolledOverBadge,
 } from '../StatusBadge';
 import { PD_LABEL_COLORS } from '@/lib/pipedrive/client';
 
@@ -113,6 +114,7 @@ export default function PilotsEndingThisMonthTab({
                     <div className="flex items-center gap-1 flex-wrap">
                       <span>{r.organizationName}</span>
                       {r.accountStatus !== 'Live' && <StatusBadge status={r.accountStatus} />}
+                      {r.rolledOver && <RolledOverBadge />}
                     </div>
                   </td>
 

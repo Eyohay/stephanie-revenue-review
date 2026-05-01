@@ -20,6 +20,7 @@ import {
   isActive,
   isPaidUpfront,
   isLikelyPaidUpfront,
+  isRolledOver,
   nextScheduledPayment,
   type SubRaw,
   type PayRaw,
@@ -54,6 +55,8 @@ export type JoinedPilotRow = {
   // Paid-upfront detection
   paidUpfront: boolean;
   likelyPaidUpfront: boolean;
+  // Computed from payment data: has at least one ok-successful payment after pilot end date
+  rolledOver: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -152,6 +155,9 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotRow[]> {
           paidUpfront: false, likelyPaidUpfront: false,
         };
 
+    const pilotEndDate = pd.pilotRolloverEndDate ? new Date(pd.pilotRolloverEndDate) : null;
+    const rolledOver = neon ? isRolledOver(pilotEndDate, neon.payments, now) : false;
+
     return {
       pipedriveOrgId:      pd.pipedriveOrgId,
       organizationName:    pd.organizationName,
@@ -162,6 +168,7 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotRow[]> {
       chargeoverCustomerId: pd.chargeoverCustomerId,
       hasNeonMatch:        neon !== null,
       ...paymentData,
+      rolledOver,
     };
   });
 }

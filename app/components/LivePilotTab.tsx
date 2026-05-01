@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { type SerializedClientRow } from '@/lib/query';
 import { formatDate, formatUSD, formatUSDPrecise, relativeDays, daysAgo, monthsApart } from '@/lib/format';
 import { LinkPills } from './LinkPills';
-import { TierBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge, LegacyPricingBadge } from './StatusBadge';
+import { TierBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge, LegacyPricingBadge, RolledOverBadge } from './StatusBadge';
 
 const TD = 'px-3 py-2.5 align-top';
 
@@ -244,7 +244,14 @@ function InPilotTable({ rows }: { rows: SerializedClientRow[] }) {
                   borderLeft: mismatch ? '3px solid #f59e0b' : '3px solid transparent',
                 }}
               >
-                <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>{r.organizationName}</td>
+                <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span>{r.organizationName}</span>
+                    {r.rolledOver && <RolledOverBadge />}
+                    {r.paidUpfront && <PaidUpfrontBadge />}
+                    {!r.paidUpfront && r.likelyPaidUpfront && <LikelyPaidUpfrontBadge />}
+                  </div>
+                </td>
                 <td className={TD}><LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} /></td>
                 <td className={TD}>
                   {r.pilotRolloverEndDate ? (
@@ -321,7 +328,14 @@ function PostPilotTable({ rows }: { rows: SerializedClientRow[] }) {
                   borderLeft: mismatch ? '3px solid #f59e0b' : '3px solid transparent',
                 }}
               >
-                <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>{r.organizationName}</td>
+                <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span>{r.organizationName}</span>
+                    {r.rolledOver && <RolledOverBadge />}
+                    {r.paidUpfront && <PaidUpfrontBadge />}
+                    {!r.paidUpfront && r.likelyPaidUpfront && <LikelyPaidUpfrontBadge />}
+                  </div>
+                </td>
                 <td className={TD}><LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} /></td>
                 <td className={TD}>
                   {r.pilotRolloverEndDate ? (

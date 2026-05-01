@@ -223,6 +223,22 @@ export function isPaidUpfront(financeNotes: string | null): boolean {
 }
 
 /**
+ * Returns true when a client has paid at least once after their pilot end date.
+ * Requires: pilot has ended, and at least one ok-successful payment dated after pilot end.
+ */
+export function isRolledOver(
+  pilotRolloverEndDate: Date | null,
+  payments: PayRaw[],
+  now: Date,
+): boolean {
+  if (!pilotRolloverEndDate) return false;
+  if (pilotRolloverEndDate >= now) return false;
+  return payments.some(
+    p => p.status === 'ok-successful' && p.paidDate !== null && p.paidDate > pilotRolloverEndDate
+  );
+}
+
+/**
  * Structural backstop for paid-upfront detection.
  *
  * The primary paid-upfront signal after round 7 is sub.amount === 0 → nextInvoiceTotal
@@ -350,6 +366,7 @@ export type ClientRow = {
   nextPaymentDate: Date | null;
   nextPaymentAmount: number | null;
   lifetimeTotalPaid: number;
+  rolledOver: boolean;
 };
 
 export type SerializedClientRow = Omit<
@@ -429,6 +446,8 @@ function buildRow(c: ClientRaw): ClientRow {
 
   const tier = deriveTier(c.financeNotes);
 
+  const rolledOver = isRolledOver(pilotEnd, c.payments, now);
+
   return {
     id: c.id,
     pipedriveOrgId: c.pipedriveOrgId,
@@ -449,6 +468,7 @@ function buildRow(c: ClientRaw): ClientRow {
     nextPaymentDate,
     nextPaymentAmount,
     lifetimeTotalPaid,
+    rolledOver,
   };
 }
 

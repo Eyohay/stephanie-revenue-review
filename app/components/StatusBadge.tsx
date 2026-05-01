@@ -79,6 +79,17 @@ export function LegacyPricingBadge() {
   );
 }
 
+export function RolledOverBadge() {
+  return (
+    <span
+      className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ml-1"
+      style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399' }}
+    >
+      Rolled Over
+    </span>
+  );
+}
+
 /** Amber dotted-border variant — paid-upfront inferred from qty>1 structure, not confirmed in PipeDrive */
 export function LikelyPaidUpfrontBadge() {
   return (
