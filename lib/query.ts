@@ -330,6 +330,7 @@ type ClientRaw = {
   dealType: string | null;
   brandName: string | null;
   actualLaunchDate: Date | null;
+  kickoffCall: Date | null;
   pilotRolloverEndDate: Date | null;
   subscriptions: SubRaw[];
   payments: PayRaw[];
@@ -351,6 +352,8 @@ export type ClientRow = {
   isPastPilot: boolean;
   // Subscription counts
   activeSubscriptionCount: number;
+  // Kick-Off Call date from Pipedrive (synced by billing-audit)
+  kickoffCall: Date | null;
   // Tier: financeNotes-based only (null = genuinely unlabeled)
   tier: 'Platinum' | 'Gold' | null;
   // Payments (ChargeOver data)
@@ -371,11 +374,12 @@ export type ClientRow = {
 
 export type SerializedClientRow = Omit<
   ClientRow,
-  'pilotRolloverEndDate' | 'lastPaymentDate' | 'nextPaymentDate'
+  'pilotRolloverEndDate' | 'lastPaymentDate' | 'nextPaymentDate' | 'kickoffCall'
 > & {
   pilotRolloverEndDate: string | null;
   lastPaymentDate: string | null;
   nextPaymentDate: string | null;
+  kickoffCall: string | null;
 };
 
 export function serializeRow(r: ClientRow): SerializedClientRow {
@@ -384,6 +388,7 @@ export function serializeRow(r: ClientRow): SerializedClientRow {
     pilotRolloverEndDate: r.pilotRolloverEndDate?.toISOString() ?? null,
     lastPaymentDate: r.lastPaymentDate?.toISOString() ?? null,
     nextPaymentDate: r.nextPaymentDate?.toISOString() ?? null,
+    kickoffCall: r.kickoffCall?.toISOString() ?? null,
   };
 }
 
@@ -456,6 +461,7 @@ function buildRow(c: ClientRaw): ClientRow {
     chargeoverCustomerId: c.chargeoverCustomerId,
     paidUpfront,
     likelyPaidUpfront,
+    kickoffCall: c.kickoffCall ?? null,
     pilotRolloverEndDate: pilotEnd,
     isInPilot,
     isPastPilot,
@@ -486,6 +492,7 @@ const CLIENT_SELECT = {
   dealType: true,
   brandName: true,
   actualLaunchDate: true,
+  kickoffCall: true,
   pilotRolloverEndDate: true,
   subscriptions: {
     select: { status: true, amount: true, lineItems: true },

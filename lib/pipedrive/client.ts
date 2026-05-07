@@ -6,6 +6,7 @@
  *   Account Status                    → 551ee20f027514fdc9cc4126a00df23591cc7c3b  (enum)
  *   Chargeover Customer #             → e958cfc16fa99acb991b231d042c7af2a07f0163  (double)
  *   Account Manager                   → 9674cb85c589cf19f3fb34ce9b233d049c4bfdbd  (user)
+ *   Kick-Off Call                     → ad398edd01666a9973599bd41fa63b0f8ff575b9  (date)
  *
  * Account Status enum (id → label):
  *   22 → Live, 23 → Churned, 24 → Pre-Launch, 48 → Executed Out,
@@ -37,6 +38,7 @@ export const PD_FIELDS = {
   ACCOUNT_STATUS:    '551ee20f027514fdc9cc4126a00df23591cc7c3b',
   CHARGEOVER_ID:     'e958cfc16fa99acb991b231d042c7af2a07f0163',
   ACCOUNT_MANAGER:   '9674cb85c589cf19f3fb34ce9b233d049c4bfdbd',
+  KICK_OFF_CALL:     'ad398edd01666a9973599bd41fa63b0f8ff575b9',
 } as const;
 
 export const PD_STATUS_MAP: Record<number, string> = {
