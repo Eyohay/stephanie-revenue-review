@@ -8,9 +8,10 @@ import StatsSection from './StatsSection';
 import PilotEndingTab from './PilotEndingTab';
 import ActiveByPriceTab from './ActiveByPriceTab';
 import LivePilotTab from './LivePilotTab';
+import PilotVsBillingTab from './tabs/PilotVsBillingTab';
 import { formatDateTime, daysAgo } from '@/lib/format';
 
-type Tab = 'pilot-ending' | 'pilots-this-month' | 'active-by-price' | 'live-pilot-status';
+type Tab = 'pilot-ending' | 'pilots-this-month' | 'active-by-price' | 'live-pilot-status' | 'pilot-vs-billing';
 
 // SerializedActiveByPriceResult — same shape but already serialized
 type SerializedActiveByPriceResult = {
@@ -51,7 +52,7 @@ export default function DashboardShell({
   currentMonthName,
   pilotsThisMonthContent,
 }: Props) {
-  const validTabs: Tab[] = ['pilot-ending', 'pilots-this-month', 'active-by-price', 'live-pilot-status'];
+  const validTabs: Tab[] = ['pilot-ending', 'pilots-this-month', 'active-by-price', 'live-pilot-status', 'pilot-vs-billing'];
   const [tab, setTab] = useState<Tab>(
     validTabs.includes(initialTab as Tab) ? (initialTab as Tab) : 'pilot-ending'
   );
@@ -67,6 +68,7 @@ export default function DashboardShell({
     { key: 'pilots-this-month', label: `Pilots ending in ${currentMonthName} · PipeDrive` },
     { key: 'active-by-price',   label: 'Active clients by price' },
     { key: 'live-pilot-status', label: 'Live clients (pilot status)' },
+    { key: 'pilot-vs-billing',  label: 'Pilot vs Billing' },
   ];
 
   return (
@@ -142,6 +144,9 @@ export default function DashboardShell({
             </div>
             <div hidden={tab !== 'live-pilot-status'}>
               <LivePilotTab rows={liveRows} />
+            </div>
+            <div hidden={tab !== 'pilot-vs-billing'}>
+              <PilotVsBillingTab rows={liveRows} />
             </div>
           </div>
         </div>
