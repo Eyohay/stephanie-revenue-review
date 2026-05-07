@@ -38,8 +38,20 @@ function computeDaysDelta(kickOffIso: string | null, pilotEndIso: string | null,
   if (!kickOffIso || !pilotEndIso || tier === 'unknown') return null;
   const fp = finalPaymentDate(new Date(kickOffIso), tier);
   if (!fp) return null;
-  const pilotEnd = new Date(pilotEndIso);
-  return Math.round((fp.getTime() - pilotEnd.getTime()) / MS_PER_DAY);
+  return Math.round((fp.getTime() - new Date(pilotEndIso).getTime()) / MS_PER_DAY);
+}
+
+// ---------------------------------------------------------------------------
+// Total at final payment: deposit + monthly_rate × tier_count
+// ---------------------------------------------------------------------------
+function computeTotalAtFinal(
+  depositAmount: number | null,
+  nextPaymentAmount: number | null,
+  tier: Tier,
+): number | null {
+  if (tier === 'unknown' || depositAmount === null || nextPaymentAmount === null) return null;
+  const count = tier === 'Gold' ? 4 : 6;
+  return depositAmount + nextPaymentAmount * count;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,13 +62,24 @@ function formatDay(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function formatMoney(n: number | null): string {
+  if (n === null) return '—';
+  const cents = Math.round(n * 100) % 100;
+  if (cents === 0) {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+  }
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+}
+
+// ---------------------------------------------------------------------------
+// Cell components
+// ---------------------------------------------------------------------------
 function DaysDeltaCell({ delta }: { delta: number | null }) {
   if (delta === null) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
   let color: string;
-  if (delta <= 0) color = '#34d399';       // green — on or before pilot end
-  else if (delta <= 7) color = '#f59e0b';  // amber — slips slightly
-  else color = '#f87171';                  // red — slips well past
-
+  if (delta <= 0) color = '#34d399';
+  else if (delta <= 7) color = '#f59e0b';
+  else color = '#f87171';
   const sign = delta > 0 ? '+' : '';
   return <span style={{ color, fontWeight: 600 }}>{sign}{delta}</span>;
 }
@@ -89,12 +112,15 @@ function TierCell({ tier }: { tier: Tier }) {
 // ---------------------------------------------------------------------------
 // Sorting
 // ---------------------------------------------------------------------------
-type SortKey = 'daysDelta' | 'pilotEndDate' | 'kickOffDate' | 'finalPaymentDate' | 'clientName' | 'tier';
+type SortKey =
+  | 'daysDelta' | 'pilotEndDate' | 'kickOffDate' | 'finalPaymentDate'
+  | 'clientName' | 'tier' | 'collectedSoFar' | 'totalAtFinal';
 
 type ComputedRow = SerializedClientRow & {
   _tier: Tier;
   _finalPaymentIso: string | null;
   _daysDelta: number | null;
+  _totalAtFinal: number | null;
 };
 
 function useSortedRows(rows: ComputedRow[]) {
@@ -111,12 +137,20 @@ function useSortedRows(rows: ComputedRow[]) {
   }
 
   const sorted = [...rows].sort((a, b) => {
-    // Rows with no delta always go to the bottom regardless of sort direction
-    const aNull = a._daysDelta === null;
-    const bNull = b._daysDelta === null;
-    if (aNull && !bNull) return 1;
-    if (!aNull && bNull) return -1;
-    if (aNull && bNull) return a.organizationName.localeCompare(b.organizationName);
+    // Null-pinning: determine which rows are "null" for this sort key and pin to bottom
+    let aIsNull: boolean;
+    let bIsNull: boolean;
+    if (sortKey === 'totalAtFinal') {
+      aIsNull = a._totalAtFinal === null;
+      bIsNull = b._totalAtFinal === null;
+    } else {
+      // All other columns: rows with no computable delta (unknown tier / missing kick-off) go to bottom
+      aIsNull = a._daysDelta === null;
+      bIsNull = b._daysDelta === null;
+    }
+    if (aIsNull && !bIsNull) return 1;
+    if (!aIsNull && bIsNull) return -1;
+    if (aIsNull && bIsNull) return a.organizationName.localeCompare(b.organizationName);
 
     let va: number, vb: number;
     switch (sortKey) {
@@ -141,11 +175,19 @@ function useSortedRows(rows: ComputedRow[]) {
           ? a.organizationName.localeCompare(b.organizationName)
           : b.organizationName.localeCompare(a.organizationName);
       case 'tier': {
-        const order = { Platinum: 0, Gold: 1, unknown: 2 };
+        const order: Record<Tier, number> = { Platinum: 0, Gold: 1, unknown: 2 };
         va = order[a._tier];
         vb = order[b._tier];
         break;
       }
+      case 'collectedSoFar':
+        va = a.collectedSoFar;
+        vb = b.collectedSoFar;
+        break;
+      case 'totalAtFinal':
+        va = a._totalAtFinal!;
+        vb = b._totalAtFinal!;
+        break;
       default:
         return 0;
     }
@@ -204,7 +246,8 @@ export default function PilotVsBillingTab({ rows }: { rows: SerializedClientRow[
       const fp = r.kickoffCall ? finalPaymentDate(new Date(r.kickoffCall), tier) : null;
       const _finalPaymentIso = fp?.toISOString() ?? null;
       const _daysDelta = computeDaysDelta(r.kickoffCall, r.pilotRolloverEndDate, tier);
-      return { ...r, _tier: tier, _finalPaymentIso, _daysDelta };
+      const _totalAtFinal = computeTotalAtFinal(r.depositAmount, r.nextPaymentAmount, tier);
+      return { ...r, _tier: tier, _finalPaymentIso, _daysDelta, _totalAtFinal };
     });
 
   const { sorted, sortKey, sortDir, onSort } = useSortedRows(inPilot);
@@ -234,6 +277,8 @@ export default function PilotVsBillingTab({ rows }: { rows: SerializedClientRow[
             <SortableHeader label="Pilot end date" sortKey="pilotEndDate" current={sortKey} dir={sortDir} onSort={onSort} />
             <SortableHeader label="Final payment" sortKey="finalPaymentDate" current={sortKey} dir={sortDir} onSort={onSort} />
             <SortableHeader label="Days delta" sortKey="daysDelta" current={sortKey} dir={sortDir} onSort={onSort} align="center" />
+            <SortableHeader label="Collected so far" sortKey="collectedSoFar" current={sortKey} dir={sortDir} onSort={onSort} align="right" />
+            <SortableHeader label="Total at final payment" sortKey="totalAtFinal" current={sortKey} dir={sortDir} onSort={onSort} align="right" />
           </tr>
         </thead>
         <tbody>
@@ -253,6 +298,12 @@ export default function PilotVsBillingTab({ rows }: { rows: SerializedClientRow[
               </td>
               <td className={TD} style={{ textAlign: 'center' }}>
                 <DaysDeltaCell delta={r._daysDelta} />
+              </td>
+              <td className={TD} style={{ textAlign: 'right', color: 'var(--foreground)' }}>
+                {formatMoney(r.collectedSoFar)}
+              </td>
+              <td className={TD} style={{ textAlign: 'right', color: r._totalAtFinal !== null ? 'var(--foreground)' : 'var(--text-muted)' }}>
+                {formatMoney(r._totalAtFinal)}
               </td>
             </tr>
           ))}
