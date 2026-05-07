@@ -356,10 +356,6 @@ export type ClientRow = {
   kickoffCall: Date | null;
   // Tier: financeNotes-based only (null = genuinely unlabeled)
   tier: 'Platinum' | 'Gold' | null;
-  // Sum of ok-successful payments only (excludes pending-processing, no-declined, etc.)
-  collectedSoFar: number;
-  // Earliest ok-successful payment amount — the deposit (null if no ok-successful payments)
-  depositAmount: number | null;
   // Payments (ChargeOver data)
   lastPaymentDate: Date | null;
   lastPaymentAmount: number | null;
@@ -419,15 +415,6 @@ function buildRow(c: ClientRaw): ClientRow {
     0
   );
 
-  // ok-successful only — what ChargeOver has actually settled
-  const okSuccessfulPayments = c.payments.filter((p) => p.status === 'ok-successful');
-  const collectedSoFar = okSuccessfulPayments.reduce((sum, p) => sum + Number(p.amount ?? 0), 0);
-  // Payments are desc by paidDate, so the last element is the earliest = deposit
-  const depositPayment = okSuccessfulPayments.length > 0
-    ? okSuccessfulPayments[okSuccessfulPayments.length - 1]
-    : null;
-  const depositAmount = depositPayment ? Number(depositPayment.amount ?? 0) : null;
-
   const nonFailedPayments = c.payments.filter((p) =>
     !FAILED_STATUSES.includes((p.status ?? '').toLowerCase())
   );
@@ -480,8 +467,6 @@ function buildRow(c: ClientRaw): ClientRow {
     isPastPilot,
     activeSubscriptionCount: activeSubs.length,
     tier,
-    collectedSoFar,
-    depositAmount,
     lastPaymentDate: lastAny?.paidDate ?? null,
     lastPaymentAmount: lastAny ? Number(lastAny.amount ?? 0) : null,
     lastPaymentPending,
