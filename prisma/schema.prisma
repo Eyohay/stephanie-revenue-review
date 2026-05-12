@@ -8,67 +8,76 @@ datasource db {
 }
 
 model Client {
-  id                   String         @id @default(cuid())
-  pipedriveOrgId       Int            @unique
-  chargeoverCustomerId String?
-  organizationName     String
-  brandName            String?
-  accountStatus        String
-  accountManager       String?
-  launchSpecialist     String?
-  writer               String?
-  dealType             String?
-  engagementType       String?
-  monthlyRetainer      Decimal?       @db.Decimal(10, 2)
-  setupFee             Decimal?       @db.Decimal(10, 2)
-  financeNotes         String?
-  wonTime              DateTime?
-  kickoffCall               DateTime?
-  actualLaunchDate          DateTime?
-  pilotRolloverEndDate      DateTime?
-  postPilotExtendedEndDate  DateTime?
-  lastSyncedAt              DateTime       @default(now())
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime
-  flags                Flag[]
-  payments             Payment[]
-  subscriptions        Subscription[]
+  id                       String            @id @default(cuid())
+  pipedriveOrgId           Int               @unique
+  chargeoverCustomerId     String?
+  organizationName         String
+  brandName                String?
+  accountStatus            String
+  accountManager           String?
+  launchSpecialist         String?
+  writer                   String?
+  dealType                 String?
+  engagementType           String?
+  monthlyRetainer          Decimal?          @db.Decimal(10, 2)
+  setupFee                 Decimal?          @db.Decimal(10, 2)
+  financeNotes             String?
+  wonTime                  DateTime?
+  kickoffCall              DateTime?
+  actualLaunchDate         DateTime?
+  lastSyncedAt             DateTime          @default(now())
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime
+  pilotRolloverEndDate     DateTime?
+  postPilotExtendedEndDate DateTime?
+  stripeCustomerId         String?
+  billingProcessor         BillingProcessor?
+  flags                    Flag[]
+  payments                 Payment[]
+  subscriptions            Subscription[]
 
   @@index([accountStatus])
   @@index([chargeoverCustomerId])
+  @@index([billingProcessor])
+  @@index([stripeCustomerId])
 }
 
 model Subscription {
-  id                       String    @id @default(cuid())
-  clientId                 String
-  chargeoverSubscriptionId String    @unique
-  status                   String
-  amount                   Decimal   @db.Decimal(10, 2)
-  startDate                DateTime?
-  endDate                  DateTime?
-  lineItems                Json?
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime
-  client                   Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id                     String           @id @default(cuid())
+  clientId               String
+  externalSubscriptionId String           @unique
+  status                 String
+  amount                 Decimal          @db.Decimal(10, 2)
+  startDate              DateTime?
+  endDate                DateTime?
+  lineItems              Json?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime
+  billingProcessor       BillingProcessor @default(CHARGEOVER)
+  client                 Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId])
   @@index([status])
+  @@index([billingProcessor])
 }
 
 model Payment {
-  id                  String    @id @default(cuid())
-  clientId            String
-  chargeoverPaymentId String    @unique
-  amount              Decimal   @db.Decimal(10, 2)
-  paidDate            DateTime?
-  status              String
-  invoiceId           String?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime
-  client              Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id                String           @id @default(cuid())
+  clientId          String
+  externalPaymentId String           @unique
+  amount            Decimal          @db.Decimal(10, 2)
+  paidDate          DateTime?
+  status            String
+  invoiceId         String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime
+  billingProcessor  BillingProcessor @default(CHARGEOVER)
+  statusNormalized  PaymentStatus    @default(UNKNOWN)
+  client            Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId])
   @@index([paidDate])
+  @@index([billingProcessor])
 }
 
 model Flag {
@@ -98,6 +107,7 @@ model SyncLog {
   pipedriveRecordsProcessed  Int       @default(0)
   chargeoverRecordsProcessed Int       @default(0)
   errors                     Json?
+  stripeRecordsProcessed     Int       @default(0)
 
   @@index([startedAt])
 }
@@ -112,6 +122,16 @@ model FlagNote {
   @@index([flagId])
 }
 
+model ClientNote {
+  id              String    @id @default(cuid())
+  clientId        String    @unique
+  note            String
+  updatedAt       DateTime  @updatedAt
+  updatedBy       String
+  reviewedByAdmin Boolean   @default(false)
+  reviewedAt      DateTime?
+}
+
 enum FlagType {
   MISSING_SUBSCRIPTION
   ORPHAN_BILLING
@@ -123,6 +143,11 @@ enum FlagType {
   MISSING_CHARGEOVER_ID
   AMOUNT_OUTLIER
   SUSPENDED_SUBSCRIPTION
+  MISSING_BILLING_ID
+  MIXED_PROCESSOR_BILLING
+  DUAL_BILLING_ID_SET
+  PENDING_UPFRONT_CHARGE
+  SILENT_FAILED_CHARGE
 }
 
 enum Severity {
@@ -131,12 +156,14 @@ enum Severity {
   error
 }
 
-model ClientNote {
-  id               String    @id @default(cuid())
-  clientId         String    @unique
-  note             String    @db.Text
-  updatedAt        DateTime  @updatedAt
-  updatedBy        String
-  reviewedByAdmin  Boolean   @default(false)
-  reviewedAt       DateTime?
+enum BillingProcessor {
+  CHARGEOVER
+  STRIPE
+}
+
+enum PaymentStatus {
+  SUCCESS
+  PENDING
+  FAILED
+  UNKNOWN
 }
