@@ -15,8 +15,6 @@
 import { prisma } from './prisma';
 import {
   ACTIVE_STATUSES,
-  PAID_STATUSES,
-  FAILED_STATUSES,
   isActive,
   isPaidUpfront,
   isLikelyPaidUpfront,
@@ -42,6 +40,7 @@ export type JoinedPilotRow = {
   // Neon-derived (null if no ChargeOver match)
   chargeoverCustomerId: string | null;
   hasNeonMatch: boolean;
+  isStripe: boolean;
 
   // Payments
   lastPaymentDate: string | null;       // ISO string
@@ -64,6 +63,8 @@ export type JoinedPilotRow = {
 // ---------------------------------------------------------------------------
 type NeonClient = {
   chargeoverCustomerId: string | null;
+  billingProcessor: string | null;
+  stripeCustomerId: string | null;
   financeNotes: string | null;
   subscriptions: SubRaw[];
   payments: PayRaw[];
@@ -89,16 +90,14 @@ function buildPaymentData(neon: NeonClient, now: Date): Pick<
     ? Number(largestSub!.amount)
     : (scheduled?.amount ?? null);
 
-  const nonFailed = neon.payments.filter(
-    p => !FAILED_STATUSES.includes((p.status ?? '').toLowerCase())
-  );
+  // Use statusNormalized enum — processor-agnostic
+  const nonFailed = neon.payments.filter(p => p.statusNormalized !== 'FAILED');
   const lastAny = nonFailed[0] ?? null;
-  const lastPaymentPending = lastAny
-    ? !PAID_STATUSES.includes((lastAny.status ?? '').toLowerCase())
-    : false;
+  const lastPaymentPending = lastAny ? lastAny.statusNormalized !== 'SUCCESS' : false;
 
   const paidUpfront = isPaidUpfront(neon.financeNotes);
-  const likelyPaidUpfront = !paidUpfront && isLikelyPaidUpfront(largestSub);
+  // Iterate all active subs — upfront-block sub lives alongside recurring template sub
+  const likelyPaidUpfront = !paidUpfront && isLikelyPaidUpfront(activeSubs);
 
   return {
     lastPaymentDate:    lastAny?.paidDate ? new Date(lastAny.paidDate).toISOString() : null,
@@ -127,11 +126,13 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotRow[]> {
         where: { chargeoverCustomerId: { in: coIds } },
         select: {
           chargeoverCustomerId: true,
+          billingProcessor: true,
+          stripeCustomerId: true,
           financeNotes: true,
-          subscriptions: { select: { status: true, amount: true, lineItems: true } },
+          subscriptions: { select: { status: true, amount: true, lineItems: true, billingProcessor: true } },
           payments: {
             orderBy: { paidDate: 'desc' },
-            select: { amount: true, paidDate: true, status: true },
+            select: { amount: true, paidDate: true, status: true, statusNormalized: true },
           },
         },
       })
@@ -157,6 +158,9 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotRow[]> {
 
     const pilotEndDate = pd.pilotRolloverEndDate ? new Date(pd.pilotRolloverEndDate) : null;
     const rolledOver = neon ? isRolledOver(pilotEndDate, neon.payments, now) : false;
+    const isStripe = neon
+      ? (neon.billingProcessor === 'STRIPE' || (neon.stripeCustomerId != null && neon.chargeoverCustomerId == null))
+      : false;
 
     return {
       pipedriveOrgId:      pd.pipedriveOrgId,
@@ -167,6 +171,7 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotRow[]> {
       labels:              pd.labels,
       chargeoverCustomerId: pd.chargeoverCustomerId,
       hasNeonMatch:        neon !== null,
+      isStripe,
       ...paymentData,
       rolledOver,
     };

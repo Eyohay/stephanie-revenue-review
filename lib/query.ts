@@ -76,6 +76,19 @@ export function nextScheduledPayment(
   let bestSub: SubRaw | null = null;
 
   for (const sub of activeSubs) {
+    // Stripe: lineItems is a single object with currentPeriodEnd (Unix seconds — * 1000 for JS Date)
+    if (sub.billingProcessor === 'STRIPE') {
+      const li = sub.lineItems as { currentPeriodEnd?: number; cancelAtPeriodEnd?: boolean } | null;
+      if (!li || li.cancelAtPeriodEnd) continue;
+      const ts = li.currentPeriodEnd;
+      if (!ts) continue;
+      const day = new Date(ts * 1000).toISOString().slice(0, 10);
+      if (!isFuture(day)) continue;
+      if (!bestDay || day < bestDay) { bestDay = day; bestSub = sub; }
+      continue;
+    }
+
+    // ChargeOver: lineItems is an array with nextBillDate per item
     const liArr = sub.lineItems as Li[] | null;
     if (!Array.isArray(liArr) || liArr.length === 0) continue;
 
@@ -234,7 +247,7 @@ export function isRolledOver(
   if (!pilotRolloverEndDate) return false;
   if (pilotRolloverEndDate >= now) return false;
   return payments.some(
-    p => p.status === 'ok-successful' && p.paidDate !== null && p.paidDate > pilotRolloverEndDate
+    p => p.statusNormalized === 'SUCCESS' && p.paidDate !== null && p.paidDate > pilotRolloverEndDate
   );
 }
 
@@ -255,16 +268,21 @@ export function isRolledOver(
  *
  * Only called when isPaidUpfront() returned false.
  */
-export function isLikelyPaidUpfront(sub: SubRaw | null): boolean {
-  if (!sub) return false;
-  // sub.amount = 0 means ChargeOver confirmed no recurring schedule → upfront payment.
-  // This is a stronger signal than qty>1 inspection and catches clients like
-  // trueproductions.com where the financeNotes don't use the "Paid Upfront" keyword.
-  if (Number(sub.amount ?? 0) === 0) return true;
-  const liArr = (sub.lineItems as Array<{ type?: string; quantity?: number; qty?: number }> | null) ?? [];
-  if (!Array.isArray(liArr)) return false;
-  // Any qty>1 service item is a multi-month block — structural signal for upfront payment
-  return liArr.some((li) => li?.type === 'service' && (li?.quantity ?? li?.qty ?? 1) > 1);
+export function isLikelyPaidUpfront(subs: SubRaw[]): boolean {
+  for (const sub of subs) {
+    if (sub.billingProcessor === 'STRIPE') {
+      // Stripe: upfrontPending flag in lineItems object signals a pending upfront balance charge
+      const li = sub.lineItems as { upfrontPending?: boolean } | null;
+      if (li?.upfrontPending === true) return true;
+    } else {
+      // ChargeOver: sub.amount = 0 means no recurring schedule → upfront payment
+      if (Number(sub.amount ?? 0) === 0) return true;
+      // ChargeOver: qty>1 service items = multi-month block
+      const liArr = (sub.lineItems as Array<{ type?: string; quantity?: number; qty?: number }> | null) ?? [];
+      if (Array.isArray(liArr) && liArr.some((li) => li?.type === 'service' && (li?.quantity ?? li?.qty ?? 1) > 1)) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -311,12 +329,14 @@ export type SubRaw = {
   status: string | null;
   amount: unknown;
   lineItems: unknown;
+  billingProcessor: string;
 };
 
 export type PayRaw = {
   amount: unknown;
   paidDate: Date | null;
   status: string;
+  statusNormalized: string;
 };
 
 type ClientRaw = {
@@ -325,6 +345,8 @@ type ClientRaw = {
   organizationName: string;
   accountStatus: string;
   chargeoverCustomerId: string | null;
+  billingProcessor: string | null;
+  stripeCustomerId: string | null;
   financeNotes: string | null;
   engagementType: string | null;
   dealType: string | null;
@@ -342,6 +364,7 @@ export type ClientRow = {
   organizationName: string;
   accountStatus: string;
   chargeoverCustomerId: string | null;
+  isStripe: boolean;
   // isPaidUpfront() substring match — authoritative (purple badge)
   paidUpfront: boolean;
   // isLikelyPaidUpfront() ratio heuristic — backstop (amber dotted badge)
@@ -400,28 +423,25 @@ function buildRow(c: ClientRaw): ClientRow {
 
   const activeSubs = c.subscriptions.filter((s) => isActive(s.status));
 
+  const isStripe = c.billingProcessor === 'STRIPE' ||
+    (c.stripeCustomerId != null && c.chargeoverCustomerId == null);
+
   // Largest active subscription = highest sub.amount (the authoritative recurring field)
   const sortedSubs = [...activeSubs].sort(
     (a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0)
   );
   const largestSub = sortedSubs[0] ?? null;
 
-  // Payments
-  const paidPayments = c.payments.filter((p) =>
-    PAID_STATUSES.includes((p.status ?? '').toLowerCase())
-  );
+  // Payments — use statusNormalized enum (processor-agnostic)
+  const paidPayments = c.payments.filter((p) => p.statusNormalized === 'SUCCESS');
   const lifetimeTotalPaid = paidPayments.reduce(
     (sum, p) => sum + Number(p.amount ?? 0),
     0
   );
 
-  const nonFailedPayments = c.payments.filter((p) =>
-    !FAILED_STATUSES.includes((p.status ?? '').toLowerCase())
-  );
+  const nonFailedPayments = c.payments.filter((p) => p.statusNormalized !== 'FAILED');
   const lastAny = nonFailedPayments[0] ?? null;
-  const lastPaymentPending = lastAny
-    ? !PAID_STATUSES.includes((lastAny.status ?? '').toLowerCase())
-    : false;
+  const lastPaymentPending = lastAny ? lastAny.statusNormalized !== 'SUCCESS' : false;
 
   // Next scheduled invoice: canonical function covering all historical fixes.
   const scheduled = nextScheduledPayment(activeSubs, now);
@@ -444,10 +464,9 @@ function buildRow(c: ClientRaw): ClientRow {
 
   const paidUpfront = isPaidUpfront(c.financeNotes);
 
-  // Structural backstop: any qty>1 service item is a multi-month upfront block.
-  // The primary signal is sub.amount === 0 → nextPaymentAmount === null → naturally
-  // excluded. This only fires for the edge case of qty>1 with sub.amount > 0.
-  const likelyPaidUpfront = !paidUpfront && isLikelyPaidUpfront(largestSub);
+  // Iterate all active subs — upfront-block sub (amount=0, no nextBillDate) lives alongside
+  // the recurring template sub; checking only largestSub misses one or the other.
+  const likelyPaidUpfront = !paidUpfront && isLikelyPaidUpfront(activeSubs);
 
   const tier = deriveTier(c.financeNotes);
 
@@ -459,6 +478,7 @@ function buildRow(c: ClientRaw): ClientRow {
     organizationName: c.organizationName,
     accountStatus: c.accountStatus,
     chargeoverCustomerId: c.chargeoverCustomerId,
+    isStripe,
     paidUpfront,
     likelyPaidUpfront,
     kickoffCall: c.kickoffCall ?? null,
@@ -487,6 +507,8 @@ const CLIENT_SELECT = {
   organizationName: true,
   accountStatus: true,
   chargeoverCustomerId: true,
+  billingProcessor: true,
+  stripeCustomerId: true,
   financeNotes: true,
   engagementType: true,
   dealType: true,
@@ -495,11 +517,11 @@ const CLIENT_SELECT = {
   kickoffCall: true,
   pilotRolloverEndDate: true,
   subscriptions: {
-    select: { status: true, amount: true, lineItems: true },
+    select: { status: true, amount: true, lineItems: true, billingProcessor: true },
   },
   payments: {
     orderBy: { paidDate: 'desc' as const },
-    select: { amount: true, paidDate: true, status: true },
+    select: { amount: true, paidDate: true, status: true, statusNormalized: true },
   },
 };
 
@@ -629,7 +651,7 @@ export async function getStats(): Promise<Stats> {
       // Only load payments that fall in the current month — used for postPilotCollectedThisMonth
       payments: {
         where: {
-          status: { in: PAID_STATUSES },
+          statusNormalized: 'SUCCESS',
           paidDate: { gte: thisMonthStart, lte: now },
         },
         select: { amount: true },
