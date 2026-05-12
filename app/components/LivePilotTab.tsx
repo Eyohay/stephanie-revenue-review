@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { type SerializedClientRow } from '@/lib/query';
 import { formatDate, formatUSD, formatUSDPrecise, relativeDays, daysAgo, monthsApart } from '@/lib/format';
 import { LinkPills } from './LinkPills';
-import { TierBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge, LegacyPricingBadge, RolledOverBadge } from './StatusBadge';
+import { TierBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge, LegacyPricingBadge, RolledOverBadge, StripeBadge } from './StatusBadge';
 
 const TD = 'px-3 py-2.5 align-top';
 
@@ -247,6 +247,7 @@ function InPilotTable({ rows }: { rows: SerializedClientRow[] }) {
                 <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
                   <div className="flex items-center gap-1 flex-wrap">
                     <span>{r.organizationName}</span>
+                    {r.isStripe && <StripeBadge />}
                     {r.rolledOver && <RolledOverBadge />}
                     {r.paidUpfront && <PaidUpfrontBadge />}
                     {!r.paidUpfront && r.likelyPaidUpfront && <LikelyPaidUpfrontBadge />}
@@ -331,6 +332,7 @@ function PostPilotTable({ rows }: { rows: SerializedClientRow[] }) {
                 <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
                   <div className="flex items-center gap-1 flex-wrap">
                     <span>{r.organizationName}</span>
+                    {r.isStripe && <StripeBadge />}
                     {r.rolledOver && <RolledOverBadge />}
                     {r.paidUpfront && <PaidUpfrontBadge />}
                     {!r.paidUpfront && r.likelyPaidUpfront && <LikelyPaidUpfrontBadge />}

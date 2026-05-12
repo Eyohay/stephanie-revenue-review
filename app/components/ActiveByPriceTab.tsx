@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { type SerializedClientRow } from '@/lib/query';
 import { formatDate, formatUSD, formatUSDPrecise, daysAgo } from '@/lib/format';
 import { LinkPills } from './LinkPills';
-import { StatusBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge, LegacyPricingBadge, RolledOverBadge } from './StatusBadge';
+import { StatusBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge, LegacyPricingBadge, RolledOverBadge, StripeBadge } from './StatusBadge';
 
 const TH_STYLE: React.CSSProperties = {
   background: 'var(--bg-elevated)',
@@ -199,6 +199,7 @@ export default function ActiveByPriceTab({
                           <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
                             <div className="flex items-center gap-1 flex-wrap">
                               <span>{r.organizationName}</span>
+                              {r.isStripe && <StripeBadge />}
                               {r.rolledOver && <RolledOverBadge />}
                             </div>
                           </td>
