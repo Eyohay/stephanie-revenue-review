@@ -25,6 +25,7 @@ import {
 import { getOrgsWithPilotEndingThisMonth } from './pipedrive/queries';
 import {
   DEAD_LT_30_LABEL_ID,
+  DEAD_OFFBOARDED_LABEL_ID,
   ROLLED_OVER_LABEL_ID,
   POTENTIAL_ROLLOVER_LABEL_ID,
 } from './pipedrive/client';
@@ -215,7 +216,8 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotResult> {
 
     // Per-row forecast inputs (full math in the row enrichment loop below).
     const labelIds = new Set(pd.labels.map((l) => l.id));
-    const excludedFromCount = labelIds.has(DEAD_LT_30_LABEL_ID);
+    const excludedFromCount =
+      labelIds.has(DEAD_LT_30_LABEL_ID) || labelIds.has(DEAD_OFFBOARDED_LABEL_ID);
     const potentialRollover = labelIds.has(POTENTIAL_ROLLOVER_LABEL_ID);
 
     // Effective retainer for forecast purposes — paid-upfront clients use the

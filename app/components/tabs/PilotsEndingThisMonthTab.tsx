@@ -91,16 +91,13 @@ function Tile({
 }
 
 function ForecastCell({ row }: { row: SerializedJoinedPilotRow }) {
-  if (row.excludedFromCount) {
+  // Any zero-contribution row renders as "excluded" — covers Dead-tagged orgs,
+  // orgs with no Neon match, and orgs without an active recurring sub.
+  if (row.forecastContribution === 0) {
     return <span style={{ color: 'var(--text-muted)' }}>excluded</span>;
   }
   const pct = Math.round(row.forecastMultiplier * 100);
-  const color = row.forecastMultiplier === 1 ? '#34d399'
-    : row.forecastMultiplier === 0.5 ? '#a78bfa'
-    : 'var(--text-muted)';
-  if (row.forecastContribution === 0) {
-    return <span style={{ color: 'var(--text-muted)' }}>—</span>;
-  }
+  const color = row.forecastMultiplier === 1 ? '#34d399' : '#a78bfa';
   return (
     <span style={{ whiteSpace: 'nowrap' }}>
       <span style={{ color, fontWeight: 500 }}>{formatUSD(row.forecastContribution)}</span>

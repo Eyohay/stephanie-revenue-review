@@ -31,9 +31,10 @@
  *   211 Dead <30 days            orange
  */
 
-// Label ID for "Dead <30 days" — these orgs are excluded from the current-month pilots count
-// (still shown in the underlying Tab 2 table with reduced opacity + strikethrough).
+// Label IDs that exclude an org from the Tab 2 pilots count, rollover % denominator, and forecast.
+// Both labels are treated as "dead" for tile-aggregate purposes; the methodology panel says so.
 export const DEAD_LT_30_LABEL_ID = 211;
+export const DEAD_OFFBOARDED_LABEL_ID = 194;
 // Label IDs for the rollover-% numerator on Tab 2.
 export const ROLLED_OVER_LABEL_ID = 98;
 export const POTENTIAL_ROLLOVER_LABEL_ID = 106;
