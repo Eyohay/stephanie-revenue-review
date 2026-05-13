@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { type SerializedClientRow } from '@/lib/query';
 import { formatDate, formatUSD, formatUSDPrecise, relativeDays, daysAgo, monthsApart } from '@/lib/format';
 import { LinkPills } from './LinkPills';
+import { LabelsForOrg } from './LabelPills';
+import { type LabelsByOrgId } from '@/lib/pipedrive/all-labels';
 import { TierBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge, LegacyPricingBadge, RolledOverBadge, StripeBadge } from './StatusBadge';
 
 const TD = 'px-3 py-2.5 align-top';
@@ -207,7 +209,7 @@ function LastPaymentCell({ r }: { r: SerializedClientRow }) {
   );
 }
 
-function InPilotTable({ rows }: { rows: SerializedClientRow[] }) {
+function InPilotTable({ rows, labelsByOrgId }: { rows: SerializedClientRow[]; labelsByOrgId: LabelsByOrgId }) {
   const { sorted, sortKey, sortDir, onSort } = useSortedRows(rows, 'pilotRolloverEndDate');
 
   if (rows.length === 0) {
@@ -224,6 +226,7 @@ function InPilotTable({ rows }: { rows: SerializedClientRow[] }) {
           <tr>
             <StaticHeader label="Client" />
             <StaticHeader label="Links" />
+            <StaticHeader label="Labels" />
             <SortableHeader label="Pilot ends" sortKey="pilotRolloverEndDate" current={sortKey} dir={sortDir} onSort={onSort} />
             <StaticHeader label="Tier" />
             <StaticHeader label="Subs" align="center" />
@@ -254,6 +257,7 @@ function InPilotTable({ rows }: { rows: SerializedClientRow[] }) {
                   </div>
                 </td>
                 <td className={TD}><LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} /></td>
+                <td className={TD}><LabelsForOrg orgId={r.pipedriveOrgId} labelsByOrgId={labelsByOrgId} /></td>
                 <td className={TD}>
                   {r.pilotRolloverEndDate ? (
                     <div>
@@ -289,7 +293,7 @@ function InPilotTable({ rows }: { rows: SerializedClientRow[] }) {
   );
 }
 
-function PostPilotTable({ rows }: { rows: SerializedClientRow[] }) {
+function PostPilotTable({ rows, labelsByOrgId }: { rows: SerializedClientRow[]; labelsByOrgId: LabelsByOrgId }) {
   const { sorted, sortKey, sortDir, onSort } = useSortedRows(rows, 'monthsOut');
   const now = new Date();
 
@@ -307,6 +311,7 @@ function PostPilotTable({ rows }: { rows: SerializedClientRow[] }) {
           <tr>
             <StaticHeader label="Client" />
             <StaticHeader label="Links" />
+            <StaticHeader label="Labels" />
             <SortableHeader label="Pilot ended" sortKey="pilotRolloverEndDate" current={sortKey} dir={sortDir} onSort={onSort} />
             <SortableHeader label="Months since pilot ended" sortKey="monthsOut" current={sortKey} dir={sortDir} onSort={onSort} />
             <StaticHeader label="Tier" />
@@ -339,6 +344,7 @@ function PostPilotTable({ rows }: { rows: SerializedClientRow[] }) {
                   </div>
                 </td>
                 <td className={TD}><LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} /></td>
+                <td className={TD}><LabelsForOrg orgId={r.pipedriveOrgId} labelsByOrgId={labelsByOrgId} /></td>
                 <td className={TD}>
                   {r.pilotRolloverEndDate ? (
                     <div>
@@ -375,7 +381,13 @@ function PostPilotTable({ rows }: { rows: SerializedClientRow[] }) {
   );
 }
 
-export default function LivePilotTab({ rows }: { rows: SerializedClientRow[] }) {
+export default function LivePilotTab({
+  rows,
+  labelsByOrgId,
+}: {
+  rows: SerializedClientRow[];
+  labelsByOrgId: LabelsByOrgId;
+}) {
   const [view, setView] = useState<View>('in-pilot');
 
   const inPilot = rows.filter((r) => r.isInPilot);
@@ -391,8 +403,8 @@ export default function LivePilotTab({ rows }: { rows: SerializedClientRow[] }) 
           onChange={setView}
         />
       </div>
-      {view === 'in-pilot' && <InPilotTable rows={inPilot} />}
-      {view === 'post-pilot' && <PostPilotTable rows={postPilot} />}
+      {view === 'in-pilot' && <InPilotTable rows={inPilot} labelsByOrgId={labelsByOrgId} />}
+      {view === 'post-pilot' && <PostPilotTable rows={postPilot} labelsByOrgId={labelsByOrgId} />}
     </div>
   );
 }

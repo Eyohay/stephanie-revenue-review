@@ -5,18 +5,13 @@
  */
 
 import { joinPilotEndingMonth } from '@/lib/joinPipedriveWithNeon';
+import { currentMonthNameET } from '@/lib/format';
 import PilotsEndingThisMonthTab from './PilotsEndingThisMonthTab';
 
-function getMonthName(): string {
-  const MONTHS = ['January','February','March','April','May','June',
-    'July','August','September','October','November','December'];
-  return MONTHS[new Date().getMonth()];
-}
-
 export default async function PilotsEndingThisMonthLoader() {
-  let rows;
+  let result;
   try {
-    rows = await joinPilotEndingMonth();
+    result = await joinPilotEndingMonth();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[PilotsEndingThisMonthLoader] PipeDrive fetch failed:', message);
@@ -44,8 +39,9 @@ export default async function PilotsEndingThisMonthLoader() {
 
   return (
     <PilotsEndingThisMonthTab
-      rows={rows}
-      monthName={getMonthName()}
+      rows={result.rows}
+      summary={result.summary}
+      monthName={currentMonthNameET()}
     />
   );
 }

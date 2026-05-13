@@ -2,14 +2,14 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { type Stats, type SerializedClientRow } from '@/lib/query';
-import { type ActiveByPriceResult } from '@/lib/query';
+import { type Stats, type SerializedClientRow, type ClientNotesMap } from '@/lib/query';
 import StatsSection from './StatsSection';
 import PilotEndingTab from './PilotEndingTab';
 import ActiveByPriceTab from './ActiveByPriceTab';
 import LivePilotTab from './LivePilotTab';
 import PilotVsBillingTab from './tabs/PilotVsBillingTab';
 import { formatDateTime, daysAgo } from '@/lib/format';
+import { type LabelsByOrgId } from '@/lib/pipedrive/all-labels';
 
 type Tab = 'pilot-ending' | 'pilots-this-month' | 'active-by-price' | 'live-pilot-status' | 'pilot-vs-billing';
 
@@ -26,6 +26,8 @@ type Props = {
   pilotRows: SerializedClientRow[];
   priceResult: SerializedActiveByPriceResult;
   liveRows: SerializedClientRow[];
+  labelsByOrgId: LabelsByOrgId;
+  clientNotes: ClientNotesMap;
   currentMonthName: string;
   pilotsThisMonthContent: React.ReactNode;
 };
@@ -49,6 +51,8 @@ export default function DashboardShell({
   pilotRows,
   priceResult,
   liveRows,
+  labelsByOrgId,
+  clientNotes,
   currentMonthName,
   pilotsThisMonthContent,
 }: Props) {
@@ -134,19 +138,24 @@ export default function DashboardShell({
         >
           <div className="p-4">
             <div hidden={tab !== 'pilot-ending'}>
-              <PilotEndingTab rows={pilotRows} />
+              <PilotEndingTab rows={pilotRows} labelsByOrgId={labelsByOrgId} />
             </div>
             <div hidden={tab !== 'pilots-this-month'}>
               {pilotsThisMonthContent}
             </div>
             <div hidden={tab !== 'active-by-price'}>
-              <ActiveByPriceTab rows={priceResult.rows} excluded={priceResult.excluded} />
+              <ActiveByPriceTab
+                rows={priceResult.rows}
+                excluded={priceResult.excluded}
+                labelsByOrgId={labelsByOrgId}
+                clientNotes={clientNotes}
+              />
             </div>
             <div hidden={tab !== 'live-pilot-status'}>
-              <LivePilotTab rows={liveRows} />
+              <LivePilotTab rows={liveRows} labelsByOrgId={labelsByOrgId} />
             </div>
             <div hidden={tab !== 'pilot-vs-billing'}>
-              <PilotVsBillingTab rows={liveRows} />
+              <PilotVsBillingTab rows={liveRows} labelsByOrgId={labelsByOrgId} />
             </div>
           </div>
         </div>

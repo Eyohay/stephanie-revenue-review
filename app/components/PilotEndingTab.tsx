@@ -1,6 +1,8 @@
 import { type SerializedClientRow } from '@/lib/query';
 import { formatDate, formatUSD, formatUSDPrecise, relativeDays, daysAgo } from '@/lib/format';
 import { LinkPills } from './LinkPills';
+import { LabelsForOrg } from './LabelPills';
+import { type LabelsByOrgId } from '@/lib/pipedrive/all-labels';
 import { StatusBadge, TierBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge, LegacyPricingBadge, StripeBadge } from './StatusBadge';
 
 const TH_STYLE: React.CSSProperties = {
@@ -23,7 +25,13 @@ function hasMismatch(last: number | null, next: number | null): boolean {
   return Math.abs(last - next) > tolerance;
 }
 
-export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }) {
+export default function PilotEndingTab({
+  rows,
+  labelsByOrgId,
+}: {
+  rows: SerializedClientRow[];
+  labelsByOrgId: LabelsByOrgId;
+}) {
   if (rows.length === 0) {
     return (
       <div className="text-center py-12 text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -39,6 +47,7 @@ export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }
           <tr>
             <th style={TH_STYLE}>Client</th>
             <th style={TH_STYLE}>Links</th>
+            <th style={TH_STYLE}>Labels</th>
             <th style={TH_STYLE}>Pilot ends</th>
             <th style={TH_STYLE}>Tier</th>
             <th style={{ ...TH_STYLE, textAlign: 'right' }}>Monthly amount</th>
@@ -73,6 +82,9 @@ export default function PilotEndingTab({ rows }: { rows: SerializedClientRow[] }
                 </td>
                 <td className={TD}>
                   <LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} />
+                </td>
+                <td className={TD}>
+                  <LabelsForOrg orgId={r.pipedriveOrgId} labelsByOrgId={labelsByOrgId} />
                 </td>
                 <td className={TD}>
                   {r.pilotRolloverEndDate ? (

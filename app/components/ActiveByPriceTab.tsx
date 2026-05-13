@@ -1,9 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { type SerializedClientRow } from '@/lib/query';
+import { type SerializedClientRow, type ClientNotesMap } from '@/lib/query';
 import { formatDate, formatUSD, formatUSDPrecise, daysAgo } from '@/lib/format';
 import { LinkPills } from './LinkPills';
+import { LabelsForOrg } from './LabelPills';
+import { type LabelsByOrgId } from '@/lib/pipedrive/all-labels';
 import { StatusBadge, PendingBadge, PaidUpfrontBadge, LikelyPaidUpfrontBadge, LegacyPricingBadge, RolledOverBadge, StripeBadge } from './StatusBadge';
 
 const TH_STYLE: React.CSSProperties = {
@@ -69,12 +71,37 @@ function SegmentedControl({
   );
 }
 
+function NoteCell({ note }: { note: string | undefined }) {
+  if (!note) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+  const truncated = note.length > 60 ? `${note.slice(0, 60).trimEnd()}…` : note;
+  return (
+    <span
+      title={note}
+      style={{
+        color: '#94a3b8',
+        fontStyle: 'italic',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        display: 'inline-block',
+        maxWidth: 240,
+      }}
+    >
+      {truncated}
+    </span>
+  );
+}
+
 export default function ActiveByPriceTab({
   rows,
   excluded,
+  labelsByOrgId,
+  clientNotes,
 }: {
   rows: SerializedClientRow[];
   excluded: SerializedClientRow[];
+  labelsByOrgId: LabelsByOrgId;
+  clientNotes: ClientNotesMap;
 }) {
   const [pilotFilter, setPilotFilter] = useState<PilotFilter>('all');
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
@@ -178,11 +205,13 @@ export default function ActiveByPriceTab({
                   <thead>
                     <tr>
                       <th style={TH_STYLE}>Client</th>
+                      <th style={TH_STYLE}>Labels</th>
                       <th style={TH_STYLE}>Links</th>
                       <th style={TH_STYLE}>Status</th>
                       <th style={TH_STYLE}>Last payment</th>
                       <th style={TH_STYLE}>Next payment</th>
                       <th style={{ ...TH_STYLE, textAlign: 'right' }}>Monthly amount</th>
+                      <th style={TH_STYLE}>Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -202,6 +231,9 @@ export default function ActiveByPriceTab({
                               {r.isStripe && <StripeBadge />}
                               {r.rolledOver && <RolledOverBadge />}
                             </div>
+                          </td>
+                          <td className={TD}>
+                            <LabelsForOrg orgId={r.pipedriveOrgId} labelsByOrgId={labelsByOrgId} />
                           </td>
                           <td className={TD}>
                             <LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} />
@@ -263,6 +295,9 @@ export default function ActiveByPriceTab({
                                 </div>
                               ) : '—';
                             })()}
+                          </td>
+                          <td className={TD}>
+                            <NoteCell note={clientNotes[r.id]} />
                           </td>
                         </tr>
                       );

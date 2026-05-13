@@ -750,6 +750,25 @@ export async function getStats(): Promise<Stats> {
 }
 
 // ---------------------------------------------------------------------------
+// Tracy's notes — read-only from the shared ClientNote table
+// (table is owned by active-clients-billing; we just read it).
+// ---------------------------------------------------------------------------
+export type ClientNotesMap = Record<string, string>;
+
+export async function getClientNotes(clientIds: string[]): Promise<ClientNotesMap> {
+  if (clientIds.length === 0) return {};
+  const notes = await prisma.clientNote.findMany({
+    where: { clientId: { in: clientIds } },
+    select: { clientId: true, note: true },
+  });
+  const out: ClientNotesMap = {};
+  for (const n of notes) {
+    if (n.note) out[n.clientId] = n.note;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Last sync time
 // ---------------------------------------------------------------------------
 export async function getLastSyncedAt(): Promise<Date | null> {

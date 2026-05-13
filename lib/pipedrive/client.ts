@@ -28,7 +28,15 @@
  *   198 Upgraded to Platinum     orange
  *   199 6 month extention        yellow
  *   210 2x Linkedin Profiles     yellow
+ *   211 Dead <30 days            orange
  */
+
+// Label ID for "Dead <30 days" — these orgs are excluded from the current-month pilots count
+// (still shown in the underlying Tab 2 table with reduced opacity + strikethrough).
+export const DEAD_LT_30_LABEL_ID = 211;
+// Label IDs for the rollover-% numerator on Tab 2.
+export const ROLLED_OVER_LABEL_ID = 98;
+export const POTENTIAL_ROLLOVER_LABEL_ID = 106;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -78,6 +86,7 @@ export const PD_LABELS: Record<number, { name: string; color: string }> = {
   198: { name: 'Upgraded to Platinum',     color: 'orange'   },
   199: { name: '6 month extension',        color: 'yellow'   },
   210: { name: '2x LinkedIn Profiles',     color: 'yellow'   },
+  211: { name: 'Dead <30 days',            color: 'orange'   },
 };
 
 // ---------------------------------------------------------------------------

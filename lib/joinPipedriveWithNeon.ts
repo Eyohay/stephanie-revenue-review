@@ -14,7 +14,6 @@
 
 import { prisma } from './prisma';
 import {
-  ACTIVE_STATUSES,
   isActive,
   isPaidUpfront,
   isLikelyPaidUpfront,
@@ -23,7 +22,12 @@ import {
   type SubRaw,
   type PayRaw,
 } from './query';
-import { getOrgsWithPilotEndingThisMonth, type PdOrg } from './pipedrive/queries';
+import { getOrgsWithPilotEndingThisMonth } from './pipedrive/queries';
+import {
+  DEAD_LT_30_LABEL_ID,
+  ROLLED_OVER_LABEL_ID,
+  POTENTIAL_ROLLOVER_LABEL_ID,
+} from './pipedrive/client';
 
 // ---------------------------------------------------------------------------
 // Joined row type
@@ -56,6 +60,30 @@ export type JoinedPilotRow = {
   likelyPaidUpfront: boolean;
   // Computed from payment data: has at least one ok-successful payment after pilot end date
   rolledOver: boolean;
+
+  // ---- Tab 2 tile inputs (per-row) -------------------------------------------
+  // True when the org has the "Dead <30 days" label — excluded from the
+  // pilots tile / rollover-% denominator / forecast total.
+  excludedFromCount: boolean;
+  // Forecast contribution in dollars for this org (0 when excluded or no Neon data).
+  forecastContribution: number;
+  // Multiplier applied to monthlyAmount to derive the contribution.
+  // 1 = full (active sub, not rollover-tagged)
+  // 0.5 = Potential Rollover label present
+  // 0 = excluded or no recurring template
+  forecastMultiplier: 0 | 0.5 | 1;
+};
+
+export type PilotMonthSummary = {
+  pilotsThisMonth: number;        // post-exclusion denominator
+  rolloverNumerator: number;      // Rolled Over + Potential Rollover (post-exclusion)
+  rolloverPercent: number;        // 0-100 rounded; 0 when denominator is 0
+  forecastTotal: number;          // sum of forecastContribution across non-excluded rows
+};
+
+export type JoinedPilotResult = {
+  rows: JoinedPilotRow[];
+  summary: PilotMonthSummary;
 };
 
 // ---------------------------------------------------------------------------
@@ -115,7 +143,7 @@ function buildPaymentData(neon: NeonClient, now: Date): Pick<
 // ---------------------------------------------------------------------------
 // Main join function
 // ---------------------------------------------------------------------------
-export async function joinPilotEndingMonth(): Promise<JoinedPilotRow[]> {
+export async function joinPilotEndingMonth(): Promise<JoinedPilotResult> {
   const pdOrgs = await getOrgsWithPilotEndingThisMonth();
 
   // Collect all ChargeOver IDs that exist in PipeDrive results
@@ -165,7 +193,7 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotRow[]> {
 
   const now = new Date();
 
-  return pdOrgs.map((pd): JoinedPilotRow => {
+  const rows = pdOrgs.map((pd): JoinedPilotRow => {
     const neon =
       (pd.chargeoverCustomerId ? neonByCoId.get(pd.chargeoverCustomerId) : undefined)
       ?? neonByPdOrgId.get(pd.pipedriveOrgId)
@@ -185,6 +213,37 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotRow[]> {
       ? (neon.billingProcessor === 'STRIPE' || (neon.stripeCustomerId != null && neon.chargeoverCustomerId == null))
       : false;
 
+    // Per-row forecast inputs (full math in the row enrichment loop below).
+    const labelIds = new Set(pd.labels.map((l) => l.id));
+    const excludedFromCount = labelIds.has(DEAD_LT_30_LABEL_ID);
+    const potentialRollover = labelIds.has(POTENTIAL_ROLLOVER_LABEL_ID);
+
+    // Effective retainer for forecast purposes — paid-upfront clients use the
+    // companion-sub fallback already encoded in monthlyAmount; missing-Neon orgs
+    // contribute 0. The canonical helper (nextScheduledPayment) already excludes
+    // discount line items and caps multi-month subs at per-month — no re-implementation.
+    const retainer = paymentData.monthlyAmount ?? 0;
+
+    const hasActiveSub = !!neon && neon.subscriptions.some((s) => isActive(s.status));
+
+    let forecastMultiplier: 0 | 0.5 | 1;
+    if (excludedFromCount) {
+      forecastMultiplier = 0;
+    } else if (potentialRollover) {
+      forecastMultiplier = 0.5;
+    } else if (hasActiveSub && retainer > 0) {
+      forecastMultiplier = 1;
+    } else {
+      forecastMultiplier = 0;
+      if (!excludedFromCount) {
+        console.warn(
+          `[forecast] No contribution for ${pd.organizationName} (pdOrgId=${pd.pipedriveOrgId}): ` +
+          `hasNeon=${!!neon} activeSub=${hasActiveSub} retainer=${retainer}`,
+        );
+      }
+    }
+    const forecastContribution = retainer * forecastMultiplier;
+
     return {
       pipedriveOrgId:      pd.pipedriveOrgId,
       organizationName:    pd.organizationName,
@@ -197,8 +256,30 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotRow[]> {
       isStripe,
       ...paymentData,
       rolledOver,
+      excludedFromCount,
+      forecastContribution,
+      forecastMultiplier,
     };
   });
+
+  // Tile aggregates (rounded once at the end, per spec).
+  const included = rows.filter((r) => !r.excludedFromCount);
+  const pilotsThisMonth = included.length;
+  const rolloverNumerator = included.filter((r) => {
+    const ids = new Set(r.labels.map((l) => l.id));
+    return ids.has(ROLLED_OVER_LABEL_ID) || ids.has(POTENTIAL_ROLLOVER_LABEL_ID);
+  }).length;
+  const rolloverPercent = pilotsThisMonth > 0
+    ? Math.round((rolloverNumerator / pilotsThisMonth) * 100)
+    : 0;
+  const forecastTotal = Math.round(
+    included.reduce((sum, r) => sum + r.forecastContribution, 0),
+  );
+
+  return {
+    rows,
+    summary: { pilotsThisMonth, rolloverNumerator, rolloverPercent, forecastTotal },
+  };
 }
 
 // Serialized version for client components (Dates as strings — already are)

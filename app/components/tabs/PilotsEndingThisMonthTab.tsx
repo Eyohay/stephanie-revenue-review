@@ -1,6 +1,6 @@
 'use client';
 
-import { type SerializedJoinedPilotRow } from '@/lib/joinPipedriveWithNeon';
+import { type SerializedJoinedPilotRow, type PilotMonthSummary } from '@/lib/joinPipedriveWithNeon';
 import { formatDate, formatUSD, formatUSDPrecise, relativeDays, daysAgo } from '@/lib/format';
 import { LinkPills } from '../LinkPills';
 import {
@@ -55,27 +55,124 @@ function LabelPills({ labels }: { labels: { id: number; name: string; color: str
   );
 }
 
+function Tile({
+  label,
+  value,
+  subtitle,
+  valueColor,
+}: {
+  label: string;
+  value: string;
+  subtitle: string;
+  valueColor: string;
+}) {
+  return (
+    <div
+      className="rounded-lg p-4"
+      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+    >
+      <div
+        className="text-[11px] uppercase tracking-wide leading-tight"
+        style={{ color: 'var(--text-muted)' }}
+      >
+        {label}
+      </div>
+      <div
+        className="text-2xl font-semibold mt-1 tabular-nums"
+        style={{ color: valueColor }}
+      >
+        {value}
+      </div>
+      <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+        {subtitle}
+      </div>
+    </div>
+  );
+}
+
+function ForecastCell({ row }: { row: SerializedJoinedPilotRow }) {
+  if (row.excludedFromCount) {
+    return <span style={{ color: 'var(--text-muted)' }}>excluded</span>;
+  }
+  const pct = Math.round(row.forecastMultiplier * 100);
+  const color = row.forecastMultiplier === 1 ? '#34d399'
+    : row.forecastMultiplier === 0.5 ? '#a78bfa'
+    : 'var(--text-muted)';
+  if (row.forecastContribution === 0) {
+    return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+  }
+  return (
+    <span style={{ whiteSpace: 'nowrap' }}>
+      <span style={{ color, fontWeight: 500 }}>{formatUSD(row.forecastContribution)}</span>
+      <span style={{ color: 'var(--text-muted)', fontSize: 10, marginLeft: 4 }}>({pct}%)</span>
+    </span>
+  );
+}
+
 export default function PilotsEndingThisMonthTab({
   rows,
+  summary,
   monthName,
 }: {
   rows: SerializedJoinedPilotRow[];
+  summary: PilotMonthSummary;
   monthName: string;
 }) {
-  if (rows.length === 0) {
-    return (
-      <div className="text-center py-12 text-sm" style={{ color: 'var(--text-secondary)' }}>
-        No pilots ending in {monthName}.
-      </div>
-    );
-  }
-
   return (
     <div>
+      {/* Tiles — pilots count, projected rollover %, forecast */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <Tile
+          label={`Pilots ending in ${monthName}`}
+          value={summary.pilotsThisMonth.toString()}
+          subtitle="Pilots ending this month, minus anyone tagged 'Dead <30 days'"
+          valueColor="#fbbf24"
+        />
+        <Tile
+          label="Projected rollover %"
+          value={`${summary.rolloverPercent}%`}
+          subtitle={`Rolled Over + Potential Rollover ÷ pilots ending this month (${summary.rolloverNumerator} ÷ ${summary.pilotsThisMonth})`}
+          valueColor="#a78bfa"
+        />
+        <Tile
+          label={`${monthName} forecast`}
+          value={formatUSD(summary.forecastTotal)}
+          subtitle="100% of active subs + 50% of rollover candidates"
+          valueColor="#34d399"
+        />
+      </div>
+
+      {/* Methodology explainer */}
+      <div
+        className="mb-4 p-3 rounded"
+        style={{
+          border: '1px dashed var(--border)',
+          background: 'transparent',
+          color: 'var(--text-secondary)',
+          fontSize: 12,
+        }}
+      >
+        <div className="font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+          How the forecast works
+        </div>
+        <ul className="list-disc pl-5 space-y-0.5" style={{ color: 'var(--text-secondary)' }}>
+          <li>Clients tagged Potential Rollover for this month → 50% of their monthly retainer</li>
+          <li>All other clients with an active subscription → 100% of their monthly retainer</li>
+          <li>Clients tagged Dead/offboarded or Dead &lt;30 days → excluded</li>
+        </ul>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="text-center py-12 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          No pilots ending in {monthName}.
+        </div>
+      ) : (
+      <>
       <div className="mb-3 flex items-center justify-between">
         <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
           Pilots ending in <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{monthName}</span>
-          {' · '}{rows.length} client{rows.length !== 1 ? 's' : ''}
+          {' · '}{rows.length} client{rows.length !== 1 ? 's' : ''} in PipeDrive
+          {' · '}{summary.pilotsThisMonth} counted
           {' · '}source: PipeDrive filter (canonical)
         </div>
         <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
@@ -95,12 +192,17 @@ export default function PilotsEndingThisMonthTab({
               <th style={TH_STYLE}>Last payment</th>
               <th style={TH_STYLE}>Next payment</th>
               <th style={{ ...TH_STYLE, textAlign: 'right' }}>Monthly amount</th>
+              <th style={{ ...TH_STYLE, textAlign: 'right' }}>Forecast</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => {
               const isUpfront = r.paidUpfront || r.likelyPaidUpfront || (r.monthlyAmount === null && r.hasNeonMatch);
               const mismatch = !isUpfront && hasMismatch(r.lastPaymentAmount, r.nextPaymentAmount);
+              const rowOpacity = r.excludedFromCount ? 0.5 : 1;
+              const nameStyle: React.CSSProperties = r.excludedFromCount
+                ? { textDecoration: 'line-through', textDecorationColor: 'var(--text-muted)' }
+                : {};
 
               return (
                 <tr
@@ -108,12 +210,13 @@ export default function PilotsEndingThisMonthTab({
                   style={{
                     borderBottom: '1px solid var(--border)',
                     borderLeft: mismatch ? '3px solid #f59e0b' : '3px solid transparent',
+                    opacity: rowOpacity,
                   }}
                 >
                   {/* Client name + status badge */}
                   <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
                     <div className="flex items-center gap-1 flex-wrap">
-                      <span>{r.organizationName}</span>
+                      <span style={nameStyle}>{r.organizationName}</span>
                       {r.isStripe && <StripeBadge />}
                       {r.accountStatus !== 'Live' && <StatusBadge status={r.accountStatus} />}
                       {r.rolledOver && <RolledOverBadge />}
@@ -221,12 +324,19 @@ export default function PilotsEndingThisMonthTab({
                       </div>
                     )}
                   </td>
+
+                  {/* Forecast */}
+                  <td className={TD} style={{ textAlign: 'right' }}>
+                    <ForecastCell row={r} />
+                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+      </>
+      )}
     </div>
   );
 }

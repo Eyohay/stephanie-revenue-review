@@ -73,3 +73,12 @@ export function monthsApart(past: Date | string, now: Date): number {
     (now.getMonth() - p.getMonth())
   );
 }
+
+// Eastern-time anchored "current month" name. Used for the auto-rolling Tab 2
+// heading and forecast tile labels so the dashboard rolls over at midnight ET.
+export function currentMonthNameET(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'America/New_York' }).format(now);
+}
+export function currentMonthShortET(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'America/New_York' }).format(now);
+}

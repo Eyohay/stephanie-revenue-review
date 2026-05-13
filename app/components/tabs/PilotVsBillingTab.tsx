@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import { type SerializedClientRow } from '@/lib/query';
 import { LinkPills } from '@/app/components/LinkPills';
+import { LabelsForOrg } from '@/app/components/LabelPills';
+import { TierBadge } from '@/app/components/StatusBadge';
+import { type LabelsByOrgId } from '@/lib/pipedrive/all-labels';
 
 const TD = 'px-3 py-2.5 align-top';
 
@@ -151,7 +154,13 @@ function SortableHeader({
 // ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
-export default function PilotVsBillingTab({ rows }: { rows: SerializedClientRow[] }) {
+export default function PilotVsBillingTab({
+  rows,
+  labelsByOrgId,
+}: {
+  rows: SerializedClientRow[];
+  labelsByOrgId: LabelsByOrgId;
+}) {
   const inPilot: ComputedRow[] = rows
     .filter((r) => r.isInPilot)
     .map((r) => {
@@ -186,6 +195,18 @@ export default function PilotVsBillingTab({ rows }: { rows: SerializedClientRow[
               padding: '10px 12px', fontSize: 11, fontWeight: 600,
               textTransform: 'uppercase', letterSpacing: '0.05em',
               whiteSpace: 'nowrap', borderBottom: '1px solid var(--border)',
+            }}>Labels</th>
+            <th style={{
+              background: 'var(--bg-elevated)', color: 'var(--text-muted)',
+              padding: '10px 12px', fontSize: 11, fontWeight: 600,
+              textTransform: 'uppercase', letterSpacing: '0.05em',
+              whiteSpace: 'nowrap', borderBottom: '1px solid var(--border)',
+            }}>Tier</th>
+            <th style={{
+              background: 'var(--bg-elevated)', color: 'var(--text-muted)',
+              padding: '10px 12px', fontSize: 11, fontWeight: 600,
+              textTransform: 'uppercase', letterSpacing: '0.05em',
+              whiteSpace: 'nowrap', borderBottom: '1px solid var(--border)',
             }}>Links</th>
             <SortableHeader label="Pilot end date" sortKey="pilotEndDate" current={sortKey} dir={sortDir} onSort={onSort} />
             <SortableHeader label="Next bill date" sortKey="nextBillDate" current={sortKey} dir={sortDir} onSort={onSort} />
@@ -197,6 +218,12 @@ export default function PilotVsBillingTab({ rows }: { rows: SerializedClientRow[
             <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
               <td className={TD} style={{ fontWeight: 500, color: 'var(--foreground)' }}>
                 {r.organizationName}
+              </td>
+              <td className={TD}>
+                <LabelsForOrg orgId={r.pipedriveOrgId} labelsByOrgId={labelsByOrgId} />
+              </td>
+              <td className={TD}>
+                <TierBadge tier={r.tier} />
               </td>
               <td className={TD}>
                 <LinkPills orgId={r.pipedriveOrgId} customerId={r.chargeoverCustomerId} />
