@@ -271,9 +271,12 @@ export function isRolledOver(
 export function isLikelyPaidUpfront(subs: SubRaw[]): boolean {
   for (const sub of subs) {
     if (sub.billingProcessor === 'STRIPE') {
-      // Stripe: upfrontPending flag in lineItems object signals a pending upfront balance charge
-      const li = sub.lineItems as { upfrontPending?: boolean } | null;
+      // Stripe: upfrontPending flag in lineItems object signals a pending upfront balance charge.
+      // upfrontBillingDate is a durable signal — it stays populated after the charge fires (when
+      // upfrontPending flips to false), so it catches Upfront clients in any charge state.
+      const li = sub.lineItems as { upfrontPending?: boolean; upfrontBillingDate?: string | null } | null;
       if (li?.upfrontPending === true) return true;
+      if (li?.upfrontBillingDate != null) return true;
     } else {
       // ChargeOver: sub.amount = 0 means no recurring schedule → upfront payment
       if (Number(sub.amount ?? 0) === 0) return true;
@@ -647,7 +650,7 @@ export async function getStats(): Promise<Stats> {
       financeNotes: true,
       chargeoverCustomerId: true,
       actualLaunchDate: true,
-      subscriptions: { select: { status: true, amount: true, lineItems: true } },
+      subscriptions: { select: { status: true, amount: true, lineItems: true, billingProcessor: true } },
       // Only load payments that fall in the current month — used for postPilotCollectedThisMonth
       payments: {
         where: {
