@@ -8,8 +8,8 @@
  * Neon (ChargeOver-synced) is the source for: last/next payment, monthly
  * amount, paid-upfront detection.
  *
- * Join key: PipeDrive "Chargeover Customer #" field (numeric double stored as
- * string like "2613") ↔ Neon client.chargeoverCustomerId (string).
+ * Join keys: Primary — PipeDrive "Chargeover Customer #" ↔ Neon chargeoverCustomerId.
+ * Secondary — pipedriveOrgId (for Stripe-only clients that have no ChargeOver ID).
  */
 
 import { prisma } from './prisma';
@@ -63,6 +63,7 @@ export type JoinedPilotRow = {
 // ---------------------------------------------------------------------------
 type NeonClient = {
   chargeoverCustomerId: string | null;
+  pipedriveOrgId: number;
   billingProcessor: string | null;
   stripeCustomerId: string | null;
   financeNotes: string | null;
@@ -120,33 +121,55 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotRow[]> {
   // Collect all ChargeOver IDs that exist in PipeDrive results
   const coIds = pdOrgs.map(o => o.chargeoverCustomerId).filter((id): id is string => id !== null);
 
-  // Fetch matching Neon clients (no status filter — we want Churned clients too)
-  const neonClients = coIds.length > 0
-    ? await prisma.client.findMany({
-        where: { chargeoverCustomerId: { in: coIds } },
-        select: {
-          chargeoverCustomerId: true,
-          billingProcessor: true,
-          stripeCustomerId: true,
-          financeNotes: true,
-          subscriptions: { select: { status: true, amount: true, lineItems: true, billingProcessor: true } },
-          payments: {
-            orderBy: { paidDate: 'desc' },
-            select: { amount: true, paidDate: true, status: true, statusNormalized: true },
-          },
-        },
-      })
-    : [];
+  // Shared select shape — used for both the primary and secondary Neon queries
+  const NEON_SELECT = {
+    chargeoverCustomerId: true,
+    pipedriveOrgId: true,
+    billingProcessor: true,
+    stripeCustomerId: true,
+    financeNotes: true,
+    subscriptions: { select: { status: true, amount: true, lineItems: true, billingProcessor: true } },
+    payments: {
+      orderBy: { paidDate: 'desc' as const },
+      select: { amount: true, paidDate: true, status: true, statusNormalized: true },
+    },
+  };
 
+  // Primary lookup: match by chargeoverCustomerId (ChargeOver clients)
   const neonByCoId = new Map<string, NeonClient>();
-  for (const c of neonClients) {
-    if (c.chargeoverCustomerId) neonByCoId.set(c.chargeoverCustomerId, c as NeonClient);
+  if (coIds.length > 0) {
+    const rows = await prisma.client.findMany({
+      where: { chargeoverCustomerId: { in: coIds } },
+      select: NEON_SELECT,
+    });
+    for (const c of rows) {
+      if (c.chargeoverCustomerId) neonByCoId.set(c.chargeoverCustomerId, c as NeonClient);
+    }
+  }
+
+  // Secondary lookup: match by pipedriveOrgId for Stripe-only orgs (no chargeoverCustomerId)
+  const unmatchedOrgIds = pdOrgs
+    .filter(o => !o.chargeoverCustomerId || !neonByCoId.has(o.chargeoverCustomerId!))
+    .map(o => o.pipedriveOrgId);
+
+  const neonByPdOrgId = new Map<number, NeonClient>();
+  if (unmatchedOrgIds.length > 0) {
+    const rows = await prisma.client.findMany({
+      where: { pipedriveOrgId: { in: unmatchedOrgIds } },
+      select: NEON_SELECT,
+    });
+    for (const c of rows) {
+      neonByPdOrgId.set(c.pipedriveOrgId, c as NeonClient);
+    }
   }
 
   const now = new Date();
 
   return pdOrgs.map((pd): JoinedPilotRow => {
-    const neon = pd.chargeoverCustomerId ? neonByCoId.get(pd.chargeoverCustomerId) ?? null : null;
+    const neon =
+      (pd.chargeoverCustomerId ? neonByCoId.get(pd.chargeoverCustomerId) : undefined)
+      ?? neonByPdOrgId.get(pd.pipedriveOrgId)
+      ?? null;
     const paymentData = neon
       ? buildPaymentData(neon, now)
       : {
