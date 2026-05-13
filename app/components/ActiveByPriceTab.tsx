@@ -88,7 +88,7 @@ export default function ActiveByPriceTab({
 
   const bucketMap = new Map<number, SerializedClientRow[]>();
   for (const r of filtered) {
-    const b = getBucket(r.nextPaymentAmount);
+    const b = getBucket(r.nextPaymentAmount ?? r.monthlyAmount);
     if (!bucketMap.has(b)) bucketMap.set(b, []);
     bucketMap.get(b)!.push(r);
   }
@@ -254,12 +254,15 @@ export default function ActiveByPriceTab({
                             className={TD}
                             style={{ textAlign: 'right', fontWeight: 500, color: 'var(--foreground)' }}
                           >
-                            {r.nextPaymentAmount !== null ? (
-                              <div className="flex items-center justify-end gap-1 flex-wrap">
-                                <span>{formatUSD(r.nextPaymentAmount)}</span>
-                                {r.nextPaymentAmount < 2000 && <LegacyPricingBadge />}
-                              </div>
-                            ) : '—'}
+                            {(() => {
+                              const amt = r.nextPaymentAmount ?? r.monthlyAmount;
+                              return amt !== null ? (
+                                <div className="flex items-center justify-end gap-1 flex-wrap">
+                                  <span>{formatUSD(amt)}</span>
+                                  {amt < 2000 && <LegacyPricingBadge />}
+                                </div>
+                              ) : '—';
+                            })()}
                           </td>
                         </tr>
                       );
