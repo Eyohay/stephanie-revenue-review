@@ -93,15 +93,18 @@ function Tile({
 function ForecastCell({ row }: { row: SerializedJoinedPilotRow }) {
   // Any zero-contribution row renders as "excluded" — covers Dead-tagged orgs,
   // orgs with no Neon match, and orgs without an active recurring sub.
-  if (row.forecastContribution === 0) {
+  if (row.forecastContribution === 0 || row.forecastBucket === null) {
     return <span style={{ color: 'var(--text-muted)' }}>excluded</span>;
   }
-  const pct = Math.round(row.forecastMultiplier * 100);
-  const color = row.forecastMultiplier === 1 ? '#34d399' : '#a78bfa';
+  const suffix =
+    row.forecastBucket === 'A' ? '100%, billing past pilot'
+    : row.forecastBucket === 'B' ? '50%, potential rollover'
+    : '100%, Stripe upfront';
+  const color = row.forecastBucket === 'B' ? '#a78bfa' : '#34d399';
   return (
     <span style={{ whiteSpace: 'nowrap' }}>
       <span style={{ color, fontWeight: 500 }}>{formatUSD(row.forecastContribution)}</span>
-      <span style={{ color: 'var(--text-muted)', fontSize: 10, marginLeft: 4 }}>({pct}%)</span>
+      <span style={{ color: 'var(--text-muted)', fontSize: 10, marginLeft: 4 }}>({suffix})</span>
     </span>
   );
 }
@@ -128,13 +131,13 @@ export default function PilotsEndingThisMonthTab({
         <Tile
           label="Projected rollover %"
           value={`${summary.rolloverPercent}%`}
-          subtitle={`Rolled Over + Potential Rollover ÷ pilots ending this month (${summary.rolloverNumerator} ÷ ${summary.pilotsThisMonth})`}
+          subtitle={`Rolled Over + Potential Rollover ÷ pilots ending this month, excluding Dead in <30 days and Dead/offboarded (${summary.rolloverNumerator} ÷ ${summary.pilotsThisMonth})`}
           valueColor="#a78bfa"
         />
         <Tile
           label={`${monthName} forecast`}
           value={formatUSD(summary.forecastTotal)}
-          subtitle="100% of active subs + 50% of rollover candidates"
+          subtitle="100% past-pilot + 50% potential rollovers + Stripe upfront billed this month"
           valueColor="#34d399"
         />
       </div>
@@ -153,9 +156,10 @@ export default function PilotsEndingThisMonthTab({
           How the forecast works
         </div>
         <ul className="list-disc pl-5 space-y-0.5" style={{ color: 'var(--text-secondary)' }}>
-          <li>Clients tagged Potential Rollover for this month → 50% of their monthly retainer</li>
-          <li>All other clients with an active subscription → 100% of their monthly retainer</li>
-          <li>Clients tagged Dead/offboarded or Dead &lt;30 days → excluded</li>
+          <li>Past pilot end date + active recurring subscription → 100% of monthly retainer</li>
+          <li>Tagged Potential Rollover (and not already past pilot) → 50% of monthly retainer</li>
+          <li>Stripe Upfront billed this calendar month → full upfront amount (Platinum $9,700 / Gold $7,800)</li>
+          <li>Tagged Dead/offboarded or Dead &lt;30 days → excluded</li>
         </ul>
       </div>
 

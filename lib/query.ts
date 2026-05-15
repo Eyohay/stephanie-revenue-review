@@ -296,7 +296,7 @@ export function isLikelyPaidUpfront(subs: SubRaw[]): boolean {
 export const nextScheduledForAllSubs = nextScheduledPayment;
 
 /** Tier from financeNotes only — no retainer-amount matching */
-function deriveTier(financeNotes: string | null): 'Platinum' | 'Gold' | null {
+export function deriveTier(financeNotes: string | null): 'Platinum' | 'Gold' | null {
   const fn = (financeNotes ?? '').toLowerCase();
   if (fn.includes('platinum')) return 'Platinum';
   if (fn.includes('gold')) return 'Gold';

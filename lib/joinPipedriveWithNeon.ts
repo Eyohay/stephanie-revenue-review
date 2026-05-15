@@ -19,9 +19,11 @@ import {
   isLikelyPaidUpfront,
   isRolledOver,
   nextScheduledPayment,
+  deriveTier,
   type SubRaw,
   type PayRaw,
 } from './query';
+import { getMonthlyAmount } from './billing/monthly-amount';
 import { getOrgsWithPilotEndingThisMonth } from './pipedrive/queries';
 import {
   DEAD_LT_30_LABEL_ID,
@@ -29,6 +31,23 @@ import {
   ROLLED_OVER_LABEL_ID,
   POTENTIAL_ROLLOVER_LABEL_ID,
 } from './pipedrive/client';
+
+// Stripe upfront flat amounts by tier (when reading from invoice line items isn't available).
+const PLATINUM_UPFRONT_AMOUNT = 9700;
+const GOLD_UPFRONT_AMOUNT = 7800;
+
+// Returns "YYYY-MM" for the current month in America/New_York. Used to match
+// against Subscription.lineItems.upfrontBillingDate (stored as "YYYY-MM-DD").
+function currentEtYearMonth(now: Date): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(now);
+  const y = parts.find(p => p.type === 'year')?.value ?? '';
+  const m = parts.find(p => p.type === 'month')?.value ?? '';
+  return `${y}-${m}`;
+}
 
 // ---------------------------------------------------------------------------
 // Joined row type
@@ -63,16 +82,16 @@ export type JoinedPilotRow = {
   rolledOver: boolean;
 
   // ---- Tab 2 tile inputs (per-row) -------------------------------------------
-  // True when the org has the "Dead <30 days" label — excluded from the
-  // pilots tile / rollover-% denominator / forecast total.
+  // True when the org has the "Dead <30 days" or "Dead/offboarded" label —
+  // excluded from the pilots tile / rollover-% denominator / forecast total.
   excludedFromCount: boolean;
-  // Forecast contribution in dollars for this org (0 when excluded or no Neon data).
+  // Forecast contribution in dollars for this org (0 when no bucket applies).
   forecastContribution: number;
-  // Multiplier applied to monthlyAmount to derive the contribution.
-  // 1 = full (active sub, not rollover-tagged)
-  // 0.5 = Potential Rollover label present
-  // 0 = excluded or no recurring template
-  forecastMultiplier: 0 | 0.5 | 1;
+  // Which forecast bucket this row falls into (null = excluded / no contribution):
+  //   'A' — past pilot + active recurring sub        → 100% of monthly amount
+  //   'B' — Potential Rollover label (not in A)      → 50%  of monthly amount
+  //   'C' — Stripe upfront billed this calendar mo.  → full upfront amount
+  forecastBucket: 'A' | 'B' | 'C' | null;
 };
 
 export type PilotMonthSummary = {
@@ -193,6 +212,7 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotResult> {
   }
 
   const now = new Date();
+  const etYearMonth = currentEtYearMonth(now);
 
   const rows = pdOrgs.map((pd): JoinedPilotRow => {
     const neon =
@@ -214,37 +234,104 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotResult> {
       ? (neon.billingProcessor === 'STRIPE' || (neon.stripeCustomerId != null && neon.chargeoverCustomerId == null))
       : false;
 
-    // Per-row forecast inputs (full math in the row enrichment loop below).
+    // === Forecast bucket math ================================================
+    //
+    //   Bucket A — "Billing past pilot" (100% confidence)
+    //     pilot ended AND org has an active recurring subscription.
+    //     Recurring = ChargeOver sub with at least one nextBillDate, OR Stripe
+    //     sub with currentPeriodEnd set and upfrontPending !== true.
+    //   Bucket B — "Rollover candidates" (50%)
+    //     "Potential Rollover" label, NOT already in A.
+    //   Bucket C — "Stripe Upfront billed this month" (100%)
+    //     Stripe sub with upfrontPending=true AND upfrontBillingDate in the
+    //     current calendar month (America/New_York).
+    //
+    //   Dedupe — an org in both A and C is counted once at the higher
+    //   contribution (warning logged).
+    //   Exclusion — Dead<30 or Dead/offboarded labels short-circuit to 0.
+
     const labelIds = new Set(pd.labels.map((l) => l.id));
     const excludedFromCount =
       labelIds.has(DEAD_LT_30_LABEL_ID) || labelIds.has(DEAD_OFFBOARDED_LABEL_ID);
     const potentialRollover = labelIds.has(POTENTIAL_ROLLOVER_LABEL_ID);
 
-    // Effective retainer for forecast purposes — paid-upfront clients use the
-    // companion-sub fallback already encoded in monthlyAmount; missing-Neon orgs
-    // contribute 0. The canonical helper (nextScheduledPayment) already excludes
-    // discount line items and caps multi-month subs at per-month — no re-implementation.
-    const retainer = paymentData.monthlyAmount ?? 0;
+    const activeSubs = neon ? neon.subscriptions.filter((s) => isActive(s.status)) : [];
 
-    const hasActiveSub = !!neon && neon.subscriptions.some((s) => isActive(s.status));
+    const recurringSubs = activeSubs.filter((s) => {
+      if (s.billingProcessor === 'STRIPE') {
+        const li = s.lineItems as {
+          currentPeriodEnd?: number;
+          cancelAtPeriodEnd?: boolean;
+          upfrontPending?: boolean;
+        } | null;
+        return !!li && !li.cancelAtPeriodEnd && li.currentPeriodEnd != null && li.upfrontPending !== true;
+      }
+      const liArr = s.lineItems as Array<{ nextBillDate?: string; next_bill_date?: string }> | null;
+      return Array.isArray(liArr) && liArr.some((li) => li?.nextBillDate || li?.next_bill_date);
+    });
 
-    let forecastMultiplier: 0 | 0.5 | 1;
+    const pastPilot = !!(pilotEndDate && pilotEndDate < now);
+    const bucketAEligible = pastPilot && recurringSubs.length > 0;
+    const bucketAAmount = bucketAEligible
+      ? recurringSubs.reduce((max, s) => Math.max(max, getMonthlyAmount(s)), 0)
+      : 0;
+
+    const upfrontSubsThisMonth = activeSubs.filter((s) => {
+      if (s.billingProcessor !== 'STRIPE') return false;
+      const li = s.lineItems as { upfrontPending?: boolean; upfrontBillingDate?: string | null } | null;
+      return !!li
+        && li.upfrontPending === true
+        && typeof li.upfrontBillingDate === 'string'
+        && li.upfrontBillingDate.startsWith(etYearMonth);
+    });
+    const tier = neon ? deriveTier(neon.financeNotes) : null;
+    const tierUpfrontAmount =
+      tier === 'Platinum' ? PLATINUM_UPFRONT_AMOUNT
+      : tier === 'Gold'   ? GOLD_UPFRONT_AMOUNT
+      : 0;
+    const bucketCEligible = upfrontSubsThisMonth.length > 0 && tierUpfrontAmount > 0;
+    const bucketCAmount = bucketCEligible ? tierUpfrontAmount : 0;
+    if (upfrontSubsThisMonth.length > 0 && tierUpfrontAmount === 0) {
+      console.warn(
+        `[forecast] ${pd.organizationName} (pdOrgId=${pd.pipedriveOrgId}) has Stripe upfront ` +
+        `billing this month but tier could not be inferred from financeNotes — contribution=0`,
+      );
+    }
+
+    let forecastBucket: 'A' | 'B' | 'C' | null = null;
+    let forecastContribution = 0;
+
     if (excludedFromCount) {
-      forecastMultiplier = 0;
+      // exclusion wins
+    } else if (bucketAEligible && bucketCEligible) {
+      // Both A and C apply — count once at the higher amount.
+      if (bucketAAmount >= bucketCAmount) {
+        forecastBucket = 'A';
+        forecastContribution = bucketAAmount;
+      } else {
+        forecastBucket = 'C';
+        forecastContribution = bucketCAmount;
+      }
+      console.warn(
+        `[forecast] ${pd.organizationName} (pdOrgId=${pd.pipedriveOrgId}) qualifies for ` +
+        `both Bucket A ($${bucketAAmount}) and Bucket C ($${bucketCAmount}); ` +
+        `counted at Bucket ${forecastBucket}`,
+      );
+    } else if (bucketAEligible) {
+      forecastBucket = 'A';
+      forecastContribution = bucketAAmount;
+    } else if (bucketCEligible) {
+      forecastBucket = 'C';
+      forecastContribution = bucketCAmount;
     } else if (potentialRollover) {
-      forecastMultiplier = 0.5;
-    } else if (hasActiveSub && retainer > 0) {
-      forecastMultiplier = 1;
-    } else {
-      forecastMultiplier = 0;
-      if (!excludedFromCount) {
-        console.warn(
-          `[forecast] No contribution for ${pd.organizationName} (pdOrgId=${pd.pipedriveOrgId}): ` +
-          `hasNeon=${!!neon} activeSub=${hasActiveSub} retainer=${retainer}`,
-        );
+      // Bucket B uses the largest active sub's monthly amount via getMonthlyAmount.
+      // Falls to 0 (and the "excluded" UI state) when no qualifying recurring amount.
+      const bAmount = activeSubs.reduce((max, s) => Math.max(max, getMonthlyAmount(s)), 0);
+      if (bAmount > 0) {
+        forecastBucket = 'B';
+        forecastContribution = 0.5 * bAmount;
       }
     }
-    const forecastContribution = retainer * forecastMultiplier;
 
     return {
       pipedriveOrgId:      pd.pipedriveOrgId,
@@ -260,7 +347,7 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotResult> {
       rolledOver,
       excludedFromCount,
       forecastContribution,
-      forecastMultiplier,
+      forecastBucket,
     };
   });
 
@@ -276,6 +363,16 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotResult> {
     : 0;
   const forecastTotal = Math.round(
     included.reduce((sum, r) => sum + r.forecastContribution, 0),
+  );
+
+  // Sanity check — the Forecast tile and the sum of the Forecast column are
+  // computed from the same per-row field, so they must always match. If this
+  // ever diverges, the tile / row code paths have drifted.
+  const columnSumUnrounded = rows.reduce((s, r) => s + r.forecastContribution, 0);
+  const columnSum = Math.round(columnSumUnrounded);
+  console.assert(
+    forecastTotal === columnSum,
+    `[forecast] tile total ($${forecastTotal}) diverges from column sum ($${columnSum})`,
   );
 
   return {

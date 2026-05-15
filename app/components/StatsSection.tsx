@@ -13,7 +13,7 @@ function KpiCard({
   label: string;
   value: string;
   sub?: string;
-  accent?: 'green' | 'blue' | 'amber';
+  accent?: 'green' | 'blue' | 'amber' | 'red';
 }) {
   const valueColor =
     accent === 'green'
@@ -22,7 +22,10 @@ function KpiCard({
       ? '#60a5fa'
       : accent === 'amber'
       ? '#fbbf24'
+      : accent === 'red'
+      ? '#f87171'
       : 'var(--foreground)';
+  const subColor = accent === 'red' ? '#f87171' : 'var(--text-muted)';
   return (
     <div
       className="rounded-lg p-4"
@@ -41,7 +44,7 @@ function KpiCard({
         {value}
       </div>
       {sub && (
-        <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+        <div className="text-[11px] mt-0.5" style={{ color: subColor }}>
           {sub}
         </div>
       )}
@@ -50,28 +53,41 @@ function KpiCard({
 }
 
 type PdCounts = { thisMonth: number; nextMonth: number; monthAfterNext: number };
+type PdStatus = 'loading' | 'success' | 'error';
 
 /**
  * Renders the KPI header section.
  *
- * Initial render uses Neon-computed counts (fast, no PipeDrive wait).
- * After mount, fetches PipeDrive counts from /api/pilot-kpi-counts and
- * updates the three pilot-month cards. Falls back to Neon values silently
- * if the PipeDrive fetch fails.
+ * The three pilot-month cards are PipeDrive-authoritative. While the
+ * /api/pilot-kpi-counts request is in flight the cards show "…"; on
+ * failure they show "⚠" with a "PD fetch failed" subtitle. We deliberately
+ * do NOT fall back to Neon — Neon's getStats() filters by accountStatus
+ * (Live + Executed Out), while PD's filters only exclude Pre-Launch, so
+ * the two sources legitimately differ. Silent fallback was hiding fetch
+ * failures and rendering stale lower numbers as if they were authoritative.
  */
 export default function StatsSection({ stats }: { stats: Stats }) {
   const [pdCounts, setPdCounts] = useState<PdCounts | null>(null);
+  const [pdStatus, setPdStatus] = useState<PdStatus>('loading');
 
   useEffect(() => {
     fetch('/api/pilot-kpi-counts')
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((data: PdCounts) => setPdCounts(data))
-      .catch(() => { /* silent — Neon values remain */ });
+      .then((data: PdCounts) => { setPdCounts(data); setPdStatus('success'); })
+      .catch(() => { setPdStatus('error'); });
   }, []);
 
-  const thisMonth    = pdCounts?.thisMonth    ?? stats.pilotsEndingThisMonth;
-  const nextMonth    = pdCounts?.nextMonth    ?? stats.pilotsEndingNextMonth;
-  const monthAfter   = pdCounts?.monthAfterNext ?? stats.pilotsEndingMonthAfterNext;
+  const cardValue = (n: number | undefined): string =>
+    pdStatus === 'loading' ? '…'
+    : pdStatus === 'error' ? '⚠'
+    : (n ?? 0).toString();
+  const cardSub = (): string | undefined =>
+    pdStatus === 'error' ? 'PD fetch failed' : undefined;
+  const cardAccent = (n: number | undefined, amberOnNonZero = false): 'amber' | 'red' | undefined => {
+    if (pdStatus === 'error') return 'red';
+    if (pdStatus !== 'success') return undefined;
+    return amberOnNonZero && (n ?? 0) > 0 ? 'amber' : undefined;
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-6 pt-4 pb-3 space-y-3">
@@ -84,16 +100,21 @@ export default function StatsSection({ stats }: { stats: Stats }) {
         />
         <KpiCard
           label={`Pilots ending in ${stats.thisMonthName}`}
-          value={thisMonth.toString()}
-          accent={thisMonth > 0 ? 'amber' : undefined}
+          value={cardValue(pdCounts?.thisMonth)}
+          sub={cardSub()}
+          accent={cardAccent(pdCounts?.thisMonth, true)}
         />
         <KpiCard
           label={`Pilots ending in ${stats.nextMonthName}`}
-          value={nextMonth.toString()}
+          value={cardValue(pdCounts?.nextMonth)}
+          sub={cardSub()}
+          accent={cardAccent(pdCounts?.nextMonth)}
         />
         <KpiCard
           label={`Pilots ending in ${stats.monthAfterNextName}`}
-          value={monthAfter.toString()}
+          value={cardValue(pdCounts?.monthAfterNext)}
+          sub={cardSub()}
+          accent={cardAccent(pdCounts?.monthAfterNext)}
         />
       </div>
 
