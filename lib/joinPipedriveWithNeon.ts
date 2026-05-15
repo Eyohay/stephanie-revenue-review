@@ -88,10 +88,13 @@ export type JoinedPilotRow = {
   // Forecast contribution in dollars for this org (0 when no bucket applies).
   forecastContribution: number;
   // Which forecast bucket this row falls into (null = excluded / no contribution):
-  //   'A' — past pilot + active recurring sub        → 100% of monthly amount
-  //   'B' — Potential Rollover label (not in A)      → 50%  of monthly amount
-  //   'C' — Stripe upfront billed this calendar mo.  → full upfront amount
-  forecastBucket: 'A' | 'B' | 'C' | null;
+  //   'A'   — past pilot + active recurring sub        → 100% of monthly amount
+  //   'A2'  — "Rolled Over" label + active recurring  → 100% of monthly amount
+  //   'B'   — Potential Rollover (not in A/A2/C)      → 50%  of monthly amount
+  //   'C'   — Stripe upfront billed this calendar mo. → full upfront amount
+  //   'rolled-over-no-sub' — Rolled Over label but no active recurring sub
+  //     (data-quality surface case — contribution is 0 but rendered distinctly)
+  forecastBucket: 'A' | 'A2' | 'B' | 'C' | 'rolled-over-no-sub' | null;
 };
 
 export type PilotMonthSummary = {
@@ -236,15 +239,24 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotResult> {
 
     // === Forecast bucket math ================================================
     //
-    //   Bucket A — "Billing past pilot" (100% confidence)
+    //   Bucket A   — "Billing past pilot" (100%)
     //     pilot ended AND org has an active recurring subscription.
     //     Recurring = ChargeOver sub with at least one nextBillDate, OR Stripe
     //     sub with currentPeriodEnd set and upfrontPending !== true.
-    //   Bucket B — "Rollover candidates" (50%)
-    //     "Potential Rollover" label, NOT already in A.
-    //   Bucket C — "Stripe Upfront billed this month" (100%)
+    //   Bucket A2  — "Rolled Over tag" (100%)
+    //     "Rolled Over" label (98) AND active recurring sub AND not already
+    //     in A or C. Catches orgs that are mid-pilot or just-after-pilot but
+    //     flagged by Stephanie as already rolled — A alone misses these
+    //     because its pilotRolloverEndDate < today gate excludes future ends.
+    //   Bucket B   — "Rollover candidates" (50%)
+    //     "Potential Rollover" label, NOT already in A/A2/C.
+    //   Bucket C   — "Stripe Upfront billed this month" (100%)
     //     Stripe sub with upfrontPending=true AND upfrontBillingDate in the
     //     current calendar month (America/New_York).
+    //   rolled-over-no-sub — Rolled Over label but NO active recurring sub.
+    //     Renders as "$0 (Rolled Over, no active sub)" rather than silently
+    //     "excluded" — surfaces the data-quality gap (Stephanie flagged the
+    //     org as rolled but billing has nothing to charge).
     //
     //   Dedupe — an org in both A and C is counted once at the higher
     //   contribution (warning logged).
@@ -254,6 +266,7 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotResult> {
     const excludedFromCount =
       labelIds.has(DEAD_LT_30_LABEL_ID) || labelIds.has(DEAD_OFFBOARDED_LABEL_ID);
     const potentialRollover = labelIds.has(POTENTIAL_ROLLOVER_LABEL_ID);
+    const rolledOverLabel = labelIds.has(ROLLED_OVER_LABEL_ID);
 
     const activeSubs = neon ? neon.subscriptions.filter((s) => isActive(s.status)) : [];
 
@@ -298,11 +311,11 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotResult> {
       );
     }
 
-    let forecastBucket: 'A' | 'B' | 'C' | null = null;
+    let forecastBucket: JoinedPilotRow['forecastBucket'] = null;
     let forecastContribution = 0;
 
     if (excludedFromCount) {
-      // exclusion wins
+      // exclusion wins — Dead<30 / Dead/offboarded short-circuit before any bucket
     } else if (bucketAEligible && bucketCEligible) {
       // Both A and C apply — count once at the higher amount.
       if (bucketAAmount >= bucketCAmount) {
@@ -323,6 +336,21 @@ export async function joinPilotEndingMonth(): Promise<JoinedPilotResult> {
     } else if (bucketCEligible) {
       forecastBucket = 'C';
       forecastContribution = bucketCAmount;
+    } else if (rolledOverLabel) {
+      // Bucket A2 — Rolled Over tag at 100%. Requires an active recurring sub;
+      // without one we cannot claim revenue, so we surface the data gap instead
+      // of silently excluding.
+      if (recurringSubs.length > 0) {
+        forecastBucket = 'A2';
+        forecastContribution = recurringSubs.reduce((max, s) => Math.max(max, getMonthlyAmount(s)), 0);
+      } else {
+        forecastBucket = 'rolled-over-no-sub';
+        forecastContribution = 0;
+        console.warn(
+          `[forecast] ${pd.organizationName} (pdOrgId=${pd.pipedriveOrgId}) is tagged ` +
+          `Rolled Over but has no active recurring subscription — counted at $0`,
+        );
+      }
     } else if (potentialRollover) {
       // Bucket B uses the largest active sub's monthly amount via getMonthlyAmount.
       // Falls to 0 (and the "excluded" UI state) when no qualifying recurring amount.

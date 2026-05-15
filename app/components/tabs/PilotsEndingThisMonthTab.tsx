@@ -91,14 +91,26 @@ function Tile({
 }
 
 function ForecastCell({ row }: { row: SerializedJoinedPilotRow }) {
-  // Any zero-contribution row renders as "excluded" — covers Dead-tagged orgs,
-  // orgs with no Neon match, and orgs without an active recurring sub.
+  // Data-quality surface case: Rolled Over tag but no active recurring sub.
+  // Render as "$0 (Rolled Over, no active sub)" in amber so it stands out
+  // from silently-excluded rows.
+  if (row.forecastBucket === 'rolled-over-no-sub') {
+    return (
+      <span style={{ whiteSpace: 'nowrap' }}>
+        <span style={{ color: '#f59e0b', fontWeight: 500 }}>{formatUSD(0)}</span>
+        <span style={{ color: '#f59e0b', fontSize: 10, marginLeft: 4 }}>(Rolled Over, no active sub)</span>
+      </span>
+    );
+  }
+  // Any other zero-contribution row renders as "excluded" — covers Dead-tagged
+  // orgs, orgs with no Neon match, and orgs that fell out of every bucket.
   if (row.forecastContribution === 0 || row.forecastBucket === null) {
     return <span style={{ color: 'var(--text-muted)' }}>excluded</span>;
   }
   const suffix =
-    row.forecastBucket === 'A' ? '100%, billing past pilot'
-    : row.forecastBucket === 'B' ? '50%, potential rollover'
+    row.forecastBucket === 'A'  ? '100%, billing past pilot'
+    : row.forecastBucket === 'A2' ? '100%, Rolled Over'
+    : row.forecastBucket === 'B'  ? '50%, potential rollover'
     : '100%, Stripe upfront';
   const color = row.forecastBucket === 'B' ? '#a78bfa' : '#34d399';
   return (
@@ -125,7 +137,7 @@ export default function PilotsEndingThisMonthTab({
         <Tile
           label={`Pilots ending in ${monthName}`}
           value={summary.pilotsThisMonth.toString()}
-          subtitle="Pilots ending this month, minus anyone tagged 'Dead <30 days'"
+          subtitle="Pilots ending this month, excluding Dead in <30 days and Dead/offboarded"
           valueColor="#fbbf24"
         />
         <Tile
@@ -157,6 +169,7 @@ export default function PilotsEndingThisMonthTab({
         </div>
         <ul className="list-disc pl-5 space-y-0.5" style={{ color: 'var(--text-secondary)' }}>
           <li>Past pilot end date + active recurring subscription → 100% of monthly retainer</li>
+          <li>Tagged Rolled Over with active subscription → 100% of monthly retainer</li>
           <li>Tagged Potential Rollover (and not already past pilot) → 50% of monthly retainer</li>
           <li>Stripe Upfront billed this calendar month → full upfront amount (Platinum $9,700 / Gold $7,800)</li>
           <li>Tagged Dead/offboarded or Dead &lt;30 days → excluded</li>
